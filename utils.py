@@ -341,6 +341,14 @@ class TextensionPreferences(bpy.types.AddonPreferences):
     show_syntax_highlight: bpy.props.BoolProperty(default=True)
     show_word_wrap: bpy.props.BoolProperty(default=True)
 
+    tab: bpy.props.EnumProperty(
+        default="SETTINGS",
+        name="Preferences Tab",
+        items=(
+            ("SETTINGS", "Settings", "Main settings tab"),
+            ("HIGHLIGHT", "Highlight", "Highlight settings tab"),
+            ("KEYMAP", "Keymap", "Keymap settings tab")))
+
     wheel_scroll_lines: bpy.props.IntProperty(
         default=3,
         name="Wheel Scroll Lines",
@@ -409,37 +417,53 @@ class TextensionPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
-        col = layout.column()
-        col.use_property_split = True
-        col.prop(self, "wheel_scroll_lines")
-        col.prop(self, "scroll_speed", slider=True)
-        col.prop(self, "use_smooth_scroll")
-        col.prop(self, "use_continuous_scroll")
+        row = layout.row()
+        row.alignment = 'CENTER'
+        row.scale_y = 1.25
+        row.prop(self, "tab", expand=True)
+        layout.separator(factor=2)
 
-        col.prop(self, "closing_bracket")
-        col.prop(self, "use_new_linebreak")
-        col.prop(self, "use_line_number_select")
-        col.prop(self, "use_home_toggle")
-        col.prop(self, "use_search_word")
-        col.prop(self, "use_cursor_history")
-        col.prop(self, "use_header_toggle")
+        mainrow = layout.row()
+        mainrow.alignment = 'CENTER'
 
-        split = layout.split(factor=0.1)
-        split.separator()
-        split = split.split(factor=0.9)
-        col = split.column(align=True)
-        col.scale_y = 1.2
-        # box = col.box()
-        self.draw_hlite_prefs(self.highlights, context, layout)
-        # if 0:
-        for cls in classes():
-            keymaps = getattr(cls, "_keymaps", ())
-            for idx, (km, kmi, note) in enumerate(keymaps):
-                if note == "HIDDEN":
-                    continue
+        if self.tab == 'SETTINGS':
+            col = mainrow.column()
+            # row = col.row()
+            # col.use_property_split = True
+            col.scale_y = 1.25
+            col.prop(self, "wheel_scroll_lines")
+            col.prop(self, "scroll_speed", slider=True)
 
-                kmi_ensure(cls, idx, kmi)
-                draw_kmi(col, kmi, note)
+            layout.separator(factor=2)
+            row = layout.row()
+            row.scale_y = 1.25
+            row.alignment = 'CENTER'
+            col = row.grid_flow(columns=2)
+            col.prop(self, "use_smooth_scroll")
+            col.prop(self, "use_continuous_scroll")
+
+            col.prop(self, "closing_bracket")
+            col.prop(self, "use_new_linebreak")
+            col.prop(self, "use_line_number_select")
+            col.prop(self, "use_home_toggle")
+            col.prop(self, "use_search_word")
+            col.prop(self, "use_cursor_history")
+            col.prop(self, "use_header_toggle")
+
+        elif self.tab == 'HIGHLIGHT':
+            self.draw_hlite_prefs(self.highlights, context, mainrow)
+
+        elif self.tab == 'KEYMAP':
+            col = mainrow.column(align=True)
+            rw = context.region.width
+            for cls in classes():
+                keymaps = getattr(cls, "_keymaps", ())
+                for idx, (km, kmi, note) in enumerate(keymaps):
+                    if note == "HIDDEN":
+                        continue
+
+                    kmi_ensure(cls, idx, kmi)
+                    draw_kmi(col, rw, kmi, note)
 
     @classmethod
     def register(cls):
@@ -462,37 +486,37 @@ class TextensionPreferences(bpy.types.AddonPreferences):
             op.name = cls.__name__
 
 
-def draw_kmi(layout, kmi, note):
-    split = layout.split(factor=0.9)
-    split = split.split(factor=0.2)
-    split.separator()
-    mainrow = split.row()
-    mainrow.alignment = 'LEFT'
-    # header bar
+def draw_kmi(layout, rw, kmi, note):
+    layout.ui_units_x = min(20, rw / 20)
+    # layout.ui_units_x = 20
+    mainrow = layout.row()
     mainrow.prop(kmi, "active", text="", emboss=False)
     mainrow.active = kmi.active
     mainrow.emboss = 'NONE'
     mainrow.prop(kmi, "show_expanded", text=note or kmi.name)
     if kmi.active:
-        row = split.row(align=True)
+        row = mainrow.row(align=True)
         row.emboss = 'NORMAL'
         row.prop(kmi, "type", text="", full_event=True)
         if kmi.show_expanded:
-            split = layout.split(factor=0.9)
-            split = split.split(factor=0.4)
+            split = layout.split(factor=0.1)
             split.separator()
+            split = split.split(factor=0.47)
             row = split.row()
-            # row.label()
             row.emboss = 'NORMAL'
             row.prop(kmi, "map_type", text="")
+            row = split.row(align=True)
+            row.alignment = 'CENTER'
             if kmi.map_type != 'KEYBOARD':
                 row.prop(kmi, "type", text="")
-            prop = row.row(align=True).prop
+            prop = row.prop
             prop(kmi, "alt", toggle=True)
             prop(kmi, "ctrl", toggle=True)
             prop(kmi, "shift", toggle=True)
             prop(kmi, "oskey", toggle=True, text="OS")
-            prop(kmi, "key_modifier", event=True, text="")
+            row = row.row(align=True)
+            row.scale_x = 0.5
+            row.prop(kmi, "key_modifier", event=True, text="")
     else:
         kmi.show_expanded = False
     mainrow.active = kmi.active
