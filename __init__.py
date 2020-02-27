@@ -876,6 +876,9 @@ class TEXTENSION_OT_drag_select(utils.TextOperator):
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):
+        # Skip if cursor is scrollbar region.
+        if in_scroll(event, context.region.width):
+            return {'PASS_THROUGH'}
         # Set initial selection range.
         bpy.ops.text.select_word()
         tc = TextContext(context)
@@ -1850,6 +1853,11 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
         return self.clicks
 
     def invoke(self, context, event):
+        region = context.region
+        rw = region.width
+        # Skip if cursor is scrollbar region.
+        if in_scroll(event, rw):
+            return {'PASS_THROUGH'}
         clicks = self.count_clicks(event)
         if clicks == 1:
             self.click_time = perf_counter()
@@ -1859,8 +1867,6 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
             self.clicks = 0
             return self.select_line(context)
         self.click_time = perf_counter()
-        region = context.region
-        rw = region.width
         # Cursor is on scroll bar, activate it instead.
         if in_scroll(event, rw):
             return bpy.ops.text.scroll_bar('INVOKE_DEFAULT')
@@ -2103,9 +2109,12 @@ class TEXTENSION_OT_scroll_continuous(utils.TextOperator):
 
     def invoke(self, context, event):
         region = context.region
+        rw = region.width
+        if in_scroll(event, rw):
+            return {'PASS_THROUGH'}
         my = event.mouse_region_y
         wm = context.window_manager
-        scroll_max = scroll_max_get(context.space_data, region.width)
+        scroll_max = scroll_max_get(context.space_data, rw)
         timer = wm.event_timer_add(1e-5, window=context.window)
         rt = STRuntime(context, scroll_max)
 
