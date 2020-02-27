@@ -47,13 +47,19 @@ def cursor_history_step(context, direction):
 
 
 # Return True if cursor is within x1 <-> x2.
-def cursor_isect_1d(event, x1, x2):
+def cursor_isect_x(event, x1, x2):
     return x1 < event.mouse_region_x <= x2
+
+
+def cursor_isect_xy(event, x1, x2, y1, y2):
+    mrx = event.mouse_region_x
+    mry = event.mouse_region_y
+    return x1 < mrx <= x2 and y1 < mry < y2
 
 
 # Scroll activates 1 pixel too late (uses >, but needs >=).
 def in_scroll(event, rw):
-    return cursor_isect_1d(event, rw - (utils.wunits_get() * 0.6), rw)
+    return cursor_isect_x(event, rw - (utils.wunits_get() * 0.6), rw)
 
 
 # Return a tuple of cursor indices.
@@ -1887,20 +1893,22 @@ class TEXTENSION_OT_line_select(utils.TextOperator):
         return self.modal_inner(context, event)
 
     def invoke(self, context, event):
-        if self.operator_active or context.region.type != 'WINDOW':
+        region = context.region
+        if self.operator_active or region.type != 'WINDOW':
             return {'CANCELLED'}
         st = context.space_data
 
         if st.show_line_numbers:
             x2 = lnum_margin_width_get(st)
 
-            if cursor_isect_1d(event, 0, x2):
+            if cursor_isect_x(event, 0, x2):
+                rh = region.height
+
                 def in_region(event):
-                    return cursor_isect_1d(event, 0, x2=x2)
+                    return cursor_isect_xy(event, 0, x2, 0, rh)
 
                 self.end = False
                 self.operator_active = True
-                # self.in_region = in_region
                 self.ttl = monotonic() + 0.1
 
                 if getattr(__class__, "_timer", None) is not None:
@@ -1909,27 +1917,27 @@ class TEXTENSION_OT_line_select(utils.TextOperator):
                 mouse_skip = {'LEFTMOUSE', 'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}
 
                 def modal_inner(context, event):
-                    etype = event.type
-                    in_margin = in_region(event)
+                    t = monotonic()
 
                     # Extend time-to-live.
-                    if etype == 'MOUSEMOVE':
-                        self.ttl = monotonic() + 0.1
+                    if event.type == 'MOUSEMOVE':
+                        self.ttl = t + 0.1
 
-                    if in_margin:
-                        if etype == 'LEFTMOUSE' and event.value == 'PRESS':
+                    if in_region(event):
+                        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
                             bpy.ops.textension.cursor(line_select=True)
                             return self.timeout(context, restore=False)
 
-                    if in_margin and not self.end:
-                        # Allow timeout inside margin.
-                        if etype == 'TIMER' and monotonic() > self.ttl:
-                            return self.timeout(context)
-                        if etype not in mouse_skip:
-                            return {'PASS_THROUGH'}
-                        return {'RUNNING_MODAL'}
+                        elif not self.end:
+                            timeout = t > self.ttl
+                            # Allow timeout inside margin.
+                            if event.type == 'TIMER' and timeout:
+                                return self.timeout(context)
+                            if event.type not in mouse_skip:
+                                return {'PASS_THROUGH'}
+                            return {'RUNNING_MODAL'}
 
-                    # Cursor is outside margin, exit and restore cursor.
+                    # Cursor is outside margin, exit and restore cursor type.
                     return self.timeout(context, restore=True)
                 self.modal_inner = modal_inner
                 __class__._timer = context.window_manager.event_timer_add(
@@ -1939,7 +1947,7 @@ class TEXTENSION_OT_line_select(utils.TextOperator):
                 return {'RUNNING_MODAL'}
 
         self.in_margin = False
-        rw = context.region.width
+        rw = region.width
         cursor = 'DEFAULT' if in_scroll(event, rw) else 'TEXT'
         context.window.cursor_set(cursor)
         return {'CANCELLED'}
