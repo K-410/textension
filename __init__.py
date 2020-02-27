@@ -1448,11 +1448,28 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
 
     @classmethod
     def register_keymaps(cls):
+        kmi_new = utils.kmi_new
         utils.kmi_args(cls, "Text", cls.bl_idname, 'PRESS')
-        utils.kmi_new('HOME', ctrl=1, note="Scroll to Top").type = 'TOP'
-        utils.kmi_new('END', ctrl=1, note="Scroll to Bottom").type = 'BOTTOM'
-        utils.kmi_new('PAGE_UP', note="Scroll Page Up").type = 'PAGEUP'
-        utils.kmi_new('PAGE_DOWN', note="Scroll Page Down").type = 'PAGEDN'
+
+        kmi_new('HOME', ctrl=1, note="Scroll to Top").type = 'TOP'
+        op = kmi_new('HOME', ctrl=1, shift=1, note="Select to Top")
+        op.type = 'TOP'
+        op.select = True
+
+        kmi_new('END', ctrl=1, note="Scroll to Bottom").type = 'BOTTOM'
+        op = kmi_new('END', ctrl=1, shift=1, note="Select to Bottom")
+        op.type = 'BOTTOM'
+        op.select = True
+
+        kmi_new('PAGE_UP', note="Scroll Page Up").type = 'PAGEUP'
+        op = kmi_new('PAGE_UP', shift=1, note="Select Page Up")
+        op.type = 'PAGEUP'
+        op.select = True
+
+        kmi_new('PAGE_DOWN', note="Scroll Page Down").type = 'PAGEDN'
+        op = kmi_new('PAGE_DOWN', shift=1, note="Select Page Down")
+        op.type = 'PAGEDN'
+        op.select = True
 
     _items = (('PAGEUP', "Page Up", "Scroll up one page"),
               ('PAGEDN', "Page Down", "Scroll down one page"),
@@ -1463,11 +1480,12 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
 
     type: bpy.props.EnumProperty(
         default='PAGEDN', items=_items, options={'SKIP_SAVE'})
-    lines: bpy.props.IntProperty(default=1)
-    jump: bpy.props.IntProperty(default=0)
+    lines: bpy.props.IntProperty(default=1, options={'SKIP_SAVE'})
+    jump: bpy.props.IntProperty(default=0, options={'SKIP_SAVE'})
     char: bpy.props.IntProperty(default=0, options={'SKIP_SAVE'})
     history: bpy.props.BoolProperty(default=True, options={'SKIP_SAVE'})
-    use_smooth: bpy.props.BoolProperty(default=True)
+    use_smooth: bpy.props.BoolProperty(default=True, options={'SKIP_SAVE'})
+    select: bpy.props.BoolProperty(default=False, options={'SKIP_SAVE'})
 
     from mathutils.geometry import interpolate_bezier as bezier
     from mathutils import Vector
@@ -1481,41 +1499,41 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
         top = st.top
 
         # Next cursor position.
-        curl_dest = min(idx_max, tc.curl + tc.vlines)
+        sell_dest = min(idx_max, tc.sell + tc.vlines)
 
         # Scroll destination (new st.top).
-        scroll_dest = tc.curl + view_half
+        scroll_dest = tc.sell + view_half
 
         def clamp_top(val):
             return 0 if val < 0 else idx_max if val > idx_max else val
         direction = 'DOWN'
         if self.type == 'PAGEUP':
             direction = 'UP'
-            curl_dest = clamp_top(tc.curl - tc.vlines)
-            scroll_dest = clamp_top(curl_dest - view_half)
+            sell_dest = clamp_top(tc.sell - tc.vlines)
+            scroll_dest = clamp_top(sell_dest - view_half)
         elif self.type == 'TOP':
             direction = 'UP'
-            curl_dest = scroll_dest = 0
+            sell_dest = scroll_dest = 0
         elif self.type == 'BOTTOM':
             direction = 'DOWN'
-            curl_dest = idx_max
+            sell_dest = idx_max
             scroll_dest = tc.lenl - view_half
         elif self.type == 'CURSOR':
-            curl_dest = tc.curl
-            if curl_dest > tc.curl:
+            sell_dest = tc.sell
+            if sell_dest > tc.sell:
                 direction = 'UP'
             else:
                 direction = 'DOWN'
-            scroll_dest = clamp_top(tc.curl - view_half)
+            scroll_dest = clamp_top(tc.sell - view_half)
         elif self.type == 'JUMP':
-            curl_dest = self.jump
-            if curl_dest > tc.curl:
+            sell_dest = self.jump
+            if sell_dest > tc.sell:
                 direction = 'UP'
             else:
                 direction = 'DOWN'
-            scroll_dest = clamp_top(curl_dest - view_half)
+            scroll_dest = clamp_top(sell_dest - view_half)
 
-        offset = offset_lines_get(st, region.width, end=max(0, curl_dest))
+        offset = offset_lines_get(st, region.width, end=max(0, sell_dest))
 
         # Allow instant scrolling. Prefs setting?
         if not self.use_smooth:
@@ -1526,7 +1544,7 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
         view_top = top - offset + 2
         view_bottom = top - offset + tc.vlines - 2
 
-        if curl_dest not in range(view_top, view_bottom):
+        if sell_dest not in range(view_top, view_bottom):
             bpy.ops.textension.scroll2(
                 'INVOKE_DEFAULT', lines=scroll_dest - top, direction=direction)
 
@@ -1537,11 +1555,12 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
             elif self.type == 'BOTTOM':
                 pos = len(tc.lines[-1].body)
             elif self.type == 'JUMP':
-                pos = min(self.char, len(tc.lines[curl_dest].body))
+                pos = min(self.char, len(tc.lines[sell_dest].body))
             else:
-                pos = min(len(tc.lines[curl_dest].body), tc.curc_sorted)
-
-            tc.text.cursor_set(curl_dest, character=pos)
+                pos = min(len(tc.lines[sell_dest].body), tc.curc_sorted)
+            print(sell_dest, pos)
+            # kwargs = {"character": pos, "select": self.select}
+            tc.text.cursor_set(sell_dest, character=pos, select=self.select)
 
         # Append new cursor position to history.
         if self.history:
