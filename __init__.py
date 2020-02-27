@@ -1123,9 +1123,7 @@ class TEXTENSION_OT_move_toggle(utils.TextOperator):
         indent = tc.indent_get(body)
 
         pos = bool(tc.selc != indent and body.strip()) and indent
-        if not event.shift:
-            tc.curc = pos
-        tc.selc = pos
+        tc.text.cursor_set(tc.sell, character=pos, select=event.shift)
         return {'FINISHED'}
 
 
@@ -1410,8 +1408,6 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
                 pos = min(self.char, len(tc.lines[sell_dest].body))
             else:
                 pos = min(len(tc.lines[sell_dest].body), tc.curc_sorted)
-            print(sell_dest, pos)
-            # kwargs = {"character": pos, "select": self.select}
             tc.text.cursor_set(sell_dest, character=pos, select=self.select)
 
         # Append new cursor position to history.
@@ -2105,8 +2101,9 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
                 if value is None:
 
                     # Snap offset to closest line.
-                    px = rt.offsets[1]
-                    rt.offs_px += lh - px if px >= lh // 2 else -px
+                    if self.jobs == 1:
+                        px = rt.offsets[1]
+                        rt.offs_px += lh - px if px >= lh // 2 else -px
                     finished = True
                     redraw()
                     return False
