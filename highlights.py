@@ -413,6 +413,7 @@ def draw_highlights(context):
         substr = substr.lower()
 
     if len(substr) >= prefs.min_str_len and curl == text.select_end_line:
+        scroll_ofs = scroll_offset_get(context)
         wunits = get_widget_unit(context)
         lheight = int(1.3 * (int(wunits * st.font_size) // 20))
 
@@ -420,7 +421,7 @@ def draw_highlights(context):
         pts, scrollpts, offset = coords_get(*args)
         cw = cwidth_get(st, wunits)
 
-        args = lheight, pts, -offset
+        args = lheight, pts, -offset + scroll_ofs
         glEnable(GL_BLEND)
         shader_bind()
 
@@ -464,7 +465,7 @@ def draw_highlights(context):
             blf.size(1, int(st.font_size * (wunits * 0.05)), 72)
             blf.color(1, *prefs.color_text)
             for co, _, substring in pts:
-                co.y += y_offset
+                co.y += y_offset + scroll_ofs
                 blf.position(1, *co, 1)
                 blf.draw(1, substring)
         glDisable(GL_BLEND)
@@ -704,7 +705,8 @@ def redraw_text_editors():
 
 
 def register():
-    global prefs
+    global prefs, scroll_offset_get
+    from .utils import scroll_offset_get
     addon = bpy.context.preferences.addons[__package__]
     prefs = addon.preferences.highlights
     bpy.types.TEXT_MT_view.append(draw_highlight_occurrences_menu)

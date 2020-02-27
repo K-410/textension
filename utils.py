@@ -543,6 +543,23 @@ class SpaceText_Runtime(ctypes.Structure):
     pass
 
 
+class wmEvent(ctypes.Structure):
+    def __init__(self):
+        import ctypes  # Not sure why linting fails without this?
+        p = ctypes.POINTER(wmEvent)
+        from_address = p.from_address
+
+        def cast(ptr):
+            return p(from_address(ptr))
+        self.cast = cast
+
+    def __call__(self, ptr):
+        ret = self.cast(ptr)
+        if ret and ret.contents:
+            return ret.contents
+        return None
+
+
 def listbase(type_=None):
     import ctypes
     type_ptr = ctypes.POINTER(type_)
@@ -629,8 +646,32 @@ SpaceText._fields_ = (
     ("runtime", SpaceText_Runtime),
 )
 
+wmEvent._fields_ = (
+    ("next", ctypes.POINTER(wmEvent)),
+    ("prev", ctypes.POINTER(wmEvent)),
+    ("type", ctypes.c_short)
+)
+Event = wmEvent()
 ST_RUNTIME_OFFS = SpaceText.runtime.offset
+SCROLL_OFFS = ST_RUNTIME_OFFS + SpaceText_Runtime._offs_px.offset
 ST_FLAGS_OFFS = SpaceText.flags.offset
+
+
+def _scroll_offset_get():
+    import ctypes
+    p = ctypes.POINTER(ctypes.c_int * 2)
+    from_addr = p.from_address
+
+    def scroll_offset_get(context):
+        ret = p(from_addr(SCROLL_OFFS + context.space_data.as_pointer()))
+
+        if ret and ret.contents:
+            return ret.contents[1]
+        return 0
+    return scroll_offset_get
+
+
+scroll_offset_get = _scroll_offset_get()
 
 
 def st_runtime():
