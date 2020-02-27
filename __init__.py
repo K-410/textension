@@ -1478,8 +1478,6 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
         idx_max = tc.lenl - 1
         view_half = tc.vlines // 2
         region = context.region
-        offl = st.show_word_wrap and offset_lines_get(st, region.width)
-        scroll_max = tc.lenl - view_half + offl
         top = st.top
 
         # Next cursor position.
@@ -1490,66 +1488,47 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
 
         def clamp_top(val):
             return 0 if val < 0 else idx_max if val > idx_max else val
-
+        direction = 'DOWN'
         if self.type == 'PAGEUP':
+            direction = 'UP'
             curl_dest = clamp_top(tc.curl - tc.vlines)
             scroll_dest = clamp_top(curl_dest - view_half)
         elif self.type == 'TOP':
+            direction = 'UP'
             curl_dest = scroll_dest = 0
         elif self.type == 'BOTTOM':
+            direction = 'DOWN'
             curl_dest = idx_max
             scroll_dest = tc.lenl - view_half
         elif self.type == 'CURSOR':
             curl_dest = tc.curl
+            if curl_dest > tc.curl:
+                direction = 'UP'
+            else:
+                direction = 'DOWN'
             scroll_dest = clamp_top(tc.curl - view_half)
         elif self.type == 'JUMP':
             curl_dest = self.jump
+            if curl_dest > tc.curl:
+                direction = 'UP'
+            else:
+                direction = 'DOWN'
             scroll_dest = clamp_top(curl_dest - view_half)
 
         offset = offset_lines_get(st, region.width, end=max(0, curl_dest))
 
-        start = self.Vector((top, 0))
-        scroll_down = scroll_dest > top - offset
-        end = self.Vector((scroll_dest + offset, 0))
-
-        # Use less frames if destination is close by.
-        frames = max(15, min(18, round(abs(top - scroll_dest) / 1.333)))
-
-        args = start, end, end, end, max(2, frames * self.use_smooth)
-        path = iter([v.x for v in self.bezier(*args)] + [False])
-
-        def scroll_timer():
-            data = next(path, False)
-            if region and data is not False:
-                # Accumulate fractional values.
-                nonlocal top
-
-                # Clamp direction to avoid flutter.
-                clamp_val = max if scroll_down else min
-                val = clamp_val(st.top, round(top))
-
-                top += data - val
-                val -= st.top
-
-                if scroll_down:
-                    if st.top - offset < scroll_max:
-                        st.top += val
-                        return 0.001
-
-                elif st.top + offset > 0:
-                    st.top += val
-                    return 0.001
-
         # Allow instant scrolling. Prefs setting?
         if not self.use_smooth:
             st.top = scroll_dest
+            return {'FINISHED'}
 
         # Animate scroll when cursor is outside of view.
         view_top = top - offset + 2
         view_bottom = top - offset + tc.vlines - 2
 
         if curl_dest not in range(view_top, view_bottom):
-            utils.defer_call(0.0, scroll_timer)
+            bpy.ops.textension.scroll2(
+                'INVOKE_DEFAULT', lines=scroll_dest - top, direction=direction)
 
         # Ensure cursor position on destination line.
         if self.type != 'CURSOR':
@@ -2178,6 +2157,11 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
     direction: bpy.props.EnumProperty(
         default='DOWN', name="Direction", description="Scroll direction",
         items=(('UP', "Up", "Scroll up"), ('DOWN', 'Down', "Scroll down")))
+    lines: bpy.props.IntProperty(
+        default=-1,
+        name="Lines",
+        description="Lines to scroll when called by script",
+        options={'SKIP_SAVE'})
 
     @utils.classproperty
     @classmethod
@@ -2198,14 +2182,22 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
         return self.inner_modal(context, event)
 
     def invoke(self, context, event):
-        mul = -1 if self.direction == 'UP' else 1
-        lines = prefs.wheel_scroll_lines * mul
-        frames = max(6, int(75 / prefs.scroll_speed) - self.jobs)
+        # Scroll by external call.
+        if self.lines != -1:
+            lines = self.lines
+            frames = max(20, int(75 / prefs.scroll_speed))
+        # Mouse wheel scroll.
+        else:
+            mul = -1 if self.direction == 'UP' else 1
+            lines = prefs.wheel_scroll_lines * mul
+            frames = max(6, int(75 / prefs.scroll_speed) - self.jobs)
+
         region = context.region
         scroll_max = scroll_max_get(context.space_data, region.width)
         finished = False
         redraw = region.tag_redraw
         rt = STRuntime(context, scroll_max)
+        lh = rt.lheight
 
         # Interpolate a smooth scroll curve. v is a value between 0 and 1.
         def custom(v):
@@ -2238,7 +2230,12 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
             t_now = perf_counter()
             if t_now > t_next:
                 value = next(data, None)
+                # No more data, end.
                 if value is None:
+
+                    # Snap offset to closest line.
+                    px = rt.offsets[1]
+                    rt.offs_px += lh - px if px >= lh // 2 else -px
                     finished = True
                     redraw()
                     return False
@@ -2255,6 +2252,7 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
             if sync():
                 redraw()
             return {'PASS_THROUGH'}
+
         self.inner_modal = inner_modal
         wm = context.window_manager
         wm.modal_handler_add(self)
