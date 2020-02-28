@@ -2050,8 +2050,7 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
             frames = min(45, max(24, int(abs(lines) / 4)))
         # Mouse wheel scroll.
         else:
-            mul = -1 if up else 1
-            lines = prefs.wheel_scroll_lines * mul
+            lines = prefs.wheel_scroll_lines * (-1 if up else 1)
             frames = max(6, int(75 / prefs.scroll_speed) - self.jobs)
 
         region = context.region
@@ -2071,7 +2070,7 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
         # from math import sin, pi
         # Offsets: Sum distance (in pixels) needed to scroll.
         start = 0
-        end = rt.lheight * lines
+        end = lh * lines
         offsets = deque()
         for f in range(frames):
             v = f / (frames - 1)
@@ -2082,18 +2081,11 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
         offsets.rotate(-1)
 
         data = iter(offsets)
+        clamp = min if up else max
 
         # Frame pacing.
         t_step = 1 / 140
         t_next = perf_counter() + t_step
-
-        def clamp(value):
-            if up:
-                if value > 0:
-                    return 0
-            elif value < 0:
-                return 0
-            return value
 
         def sync():
             nonlocal t_next, finished
@@ -2110,8 +2102,7 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
                     finished = True
                     redraw()
                     return False
-                # rt.offs_px += value
-                rt.offs_px += clamp(value)
+                rt.offs_px += clamp(value, 0)
                 t_next = t_now + t_step
                 return True
             return False
