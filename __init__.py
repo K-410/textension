@@ -2047,7 +2047,7 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
         # Scroll by external call.
         if self.lines != -1:
             lines = self.lines
-            frames = min(50, max(35, int(abs(lines) / 3)))
+            frames = min(45, max(24, int(abs(lines) / 4)))
         # Mouse wheel scroll.
         else:
             mul = -1 if up else 1
