@@ -33,6 +33,7 @@ _call = _bpy.ops.call
 setdefault = utils.setdefault
 iadd_default = utils.iadd_default
 STRuntime = utils.STRuntime
+wunits_get = utils.wunits_get
 
 
 def cursor_history_add(context, *args, **kwargs):
@@ -58,8 +59,10 @@ def cursor_isect_xy(event, x1, x2, y1, y2):
 
 
 # Scroll activates 1 pixel too late (uses >, but needs >=).
-def in_scroll(event, rw):
-    return cursor_isect_x(event, rw - (utils.wunits_get() * 0.6), rw)
+def in_scroll(event, region):
+    rw = region.width
+    return cursor_isect_xy(
+        event, rw - (wunits_get() * 0.6), rw, 0, region.height)
 
 
 # Return a tuple of cursor indices.
@@ -883,7 +886,7 @@ class TEXTENSION_OT_drag_select(utils.TextOperator):
 
     def invoke(self, context, event):
         # Skip if cursor is scrollbar region.
-        if in_scroll(event, context.region.width):
+        if in_scroll(event, context.region):
             return {'PASS_THROUGH'}
         # Set initial selection range.
         bpy.ops.text.select_word()
@@ -1377,16 +1380,16 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
         elif self.type == 'CURSOR':
             sell_dest = tc.sell
             if sell_dest > tc.sell:
-                direction = 'UP'
-            else:
                 direction = 'DOWN'
+            else:
+                direction = 'UP'
             scroll_dest = clamp_top(tc.sell - view_half)
         elif self.type == 'JUMP':
             sell_dest = self.jump
             if sell_dest > tc.sell:
-                direction = 'UP'
-            else:
                 direction = 'DOWN'
+            else:
+                direction = 'UP'
             scroll_dest = clamp_top(sell_dest - view_half)
 
         offset = offset_lines_get(st, region.width, end=max(0, sell_dest))
@@ -1708,7 +1711,7 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
         region = context.region
         rw = region.width
         # Skip if cursor is scrollbar region.
-        if in_scroll(event, rw):
+        if in_scroll(event, region):
             return {'PASS_THROUGH'}
         clicks = self.count_clicks(event)
         if clicks == 1:
@@ -1720,13 +1723,13 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
             return self.select_line(context)
         self.click_time = perf_counter()
         # Cursor is on scroll bar, activate it instead.
-        if in_scroll(event, rw):
+        if in_scroll(event, region):
             return bpy.ops.text.scroll_bar('INVOKE_DEFAULT')
 
         # If cursor is in margin, enable line selection.
         # line_op = globals().get("TEXTENSION_OT_line_select")
         op = TEXTENSION_OT_line_select
-        if op and op.in_margin and prefs.use_line_number_select:
+        if op and op.in_margin() and prefs.use_line_number_select:
             self.line_select = True
 
         self.active = True
@@ -1859,32 +1862,24 @@ class TEXTENSION_OT_line_select(utils.TextOperator):
         except AttributeError:
             pass
 
-    @utils.classproperty
     @classmethod
-    def operator_active(cls):
-        return setdefault(cls, "_active", False)
-
-    @operator_active.setter
-    @classmethod
-    def operator_active(cls, state):
+    def operator_active(cls, state=None):
+        if state is None:
+            return getattr(cls, "_active", False)
         cls._active = state
 
-    @utils.classproperty
     @classmethod
-    def in_margin(cls):
-        return setdefault(cls, "_in_margin", False)
-
-    @in_margin.setter
-    @classmethod
-    def in_margin(cls, state):
-        cls._in_margin = state
+    def in_margin(cls, state=None):
+        if state is None:
+            return getattr(cls, "_in_margin", False)
+        cls._margin = state
 
     # Stop when cursor isn't moving.
     @classmethod
     def timeout(cls, context, restore=False):
         context.window_manager.event_timer_remove(cls._timer)
         del cls._timer
-        cls.operator_active = False
+        cls.operator_active(False)
         if restore:
             context.window.cursor_modal_restore()
         return {'CANCELLED'}
@@ -1894,63 +1889,55 @@ class TEXTENSION_OT_line_select(utils.TextOperator):
 
     def invoke(self, context, event):
         region = context.region
-        if self.operator_active or region.type != 'WINDOW':
+        if self.operator_active() or region.type != 'WINDOW':
             return {'CANCELLED'}
+
         st = context.space_data
+        if not st.show_line_numbers:
+            self.in_margin(False)
+            cursor = 'DEFAULT' if in_scroll(event, region) else 'TEXT'
+            context.window.cursor_set(cursor)
+            return {'CANCELLED'}
 
-        if st.show_line_numbers:
-            x2 = lnum_margin_width_get(st)
+        x2 = lnum_margin_width_get(st)
+        if not cursor_isect_x(event, 0, x2):
+            return {'CANCELLED'}
 
-            if cursor_isect_x(event, 0, x2):
-                rh = region.height
+        def in_region(event):
+            return cursor_isect_xy(event, 0, x2, 0, region.height)
 
-                def in_region(event):
-                    return cursor_isect_xy(event, 0, x2, 0, rh)
+        ttl = monotonic() + 0.1
+        self.operator_active(True)
+        assert getattr(__class__, "_timer", None) is None
+        mouse_skip = {'LEFTMOUSE', 'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}
 
-                self.end = False
-                self.operator_active = True
-                self.ttl = monotonic() + 0.1
+        def modal_inner(context, event):
+            nonlocal ttl
+            t = monotonic()
+            # Extend time-to-live.
+            if event.type == 'MOUSEMOVE':
+                ttl = t + 0.1
+            if in_region(event):
+                if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+                    bpy.ops.textension.cursor(line_select=True)
+                    return self.timeout(context)
 
-                if getattr(__class__, "_timer", None) is not None:
-                    raise Exception
-
-                mouse_skip = {'LEFTMOUSE', 'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}
-
-                def modal_inner(context, event):
-                    t = monotonic()
-
-                    # Extend time-to-live.
-                    if event.type == 'MOUSEMOVE':
-                        self.ttl = t + 0.1
-
-                    if in_region(event):
-                        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-                            bpy.ops.textension.cursor(line_select=True)
-                            return self.timeout(context, restore=False)
-
-                        elif not self.end:
-                            timeout = t > self.ttl
-                            # Allow timeout inside margin.
-                            if event.type == 'TIMER' and timeout:
-                                return self.timeout(context)
-                            if event.type not in mouse_skip:
-                                return {'PASS_THROUGH'}
-                            return {'RUNNING_MODAL'}
-
-                    # Cursor is outside margin, exit and restore cursor type.
-                    return self.timeout(context, restore=True)
-                self.modal_inner = modal_inner
-                __class__._timer = context.window_manager.event_timer_add(
-                    0.03, window=context.window)
-                context.window_manager.modal_handler_add(self)
-                context.window.cursor_modal_set("DEFAULT")
+                # Allow timeout inside margin.
+                if event.type == 'TIMER' and t > ttl:
+                    return self.timeout(context)
+                if event.type not in mouse_skip:
+                    return {'PASS_THROUGH'}
                 return {'RUNNING_MODAL'}
 
-        self.in_margin = False
-        rw = region.width
-        cursor = 'DEFAULT' if in_scroll(event, rw) else 'TEXT'
-        context.window.cursor_set(cursor)
-        return {'CANCELLED'}
+            # Cursor is outside margin, exit and restore cursor type.
+            return self.timeout(context, restore=True)
+
+        self.modal_inner = modal_inner
+        __class__._timer = context.window_manager.event_timer_add(
+            0.03, window=context.window)
+        context.window_manager.modal_handler_add(self)
+        context.window.cursor_modal_set("DEFAULT")
+        return {'RUNNING_MODAL'}
 
 
 class TEXTENSION_OT_scroll_continuous(utils.TextOperator):
@@ -1963,12 +1950,11 @@ class TEXTENSION_OT_scroll_continuous(utils.TextOperator):
 
     def invoke(self, context, event):
         region = context.region
-        rw = region.width
-        if in_scroll(event, rw):
+        if in_scroll(event, region):
             return {'PASS_THROUGH'}
         my = event.mouse_region_y
         wm = context.window_manager
-        scroll_max = scroll_max_get(context.space_data, rw)
+        scroll_max = scroll_max_get(context.space_data, region.width)
         timer = wm.event_timer_add(1e-5, window=context.window)
         rt = STRuntime(context, scroll_max)
 
@@ -2057,13 +2043,14 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
         return self.inner_modal(context, event)
 
     def invoke(self, context, event):
+        up = self.direction == 'UP'
         # Scroll by external call.
         if self.lines != -1:
             lines = self.lines
-            frames = max(20, int(75 / prefs.scroll_speed))
+            frames = min(50, max(35, int(abs(lines) / 3)))
         # Mouse wheel scroll.
         else:
-            mul = -1 if self.direction == 'UP' else 1
+            mul = -1 if up else 1
             lines = prefs.wheel_scroll_lines * mul
             frames = max(6, int(75 / prefs.scroll_speed) - self.jobs)
 
@@ -2081,15 +2068,15 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
             vm = 1 - v
             vm2 = v ** 1.5 * vm
             return mul * v * vm ** 2 + 2.5 * vm2 + 0.5 * vm2 + v ** 3
-        from math import sin, pi
+        # from math import sin, pi
         # Offsets: Sum distance (in pixels) needed to scroll.
         start = 0
         end = rt.lheight * lines
         offsets = deque()
         for f in range(frames):
             v = f / (frames - 1)
-            value = sin(v ** 1.25 * (pi / 1.9)) * end  # Sine unused.
-            # value = custom(v) * end
+            # value = sin(v ** 1.25 * (pi / 1.9)) * end  # Sine unused.
+            value = custom(v) * end
             offsets.append(value - start)
             start = value
         offsets.rotate(-1)
@@ -2099,6 +2086,14 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
         # Frame pacing.
         t_step = 1 / 140
         t_next = perf_counter() + t_step
+
+        def clamp(value):
+            if up:
+                if value > 0:
+                    return 0
+            elif value < 0:
+                return 0
+            return value
 
         def sync():
             nonlocal t_next, finished
@@ -2115,7 +2110,8 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
                     finished = True
                     redraw()
                     return False
-                rt.offs_px += value
+                # rt.offs_px += value
+                rt.offs_px += clamp(value)
                 t_next = t_now + t_step
                 return True
             return False
