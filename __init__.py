@@ -1709,34 +1709,34 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
 
     def invoke(self, context, event):
         region = context.region
-        rw = region.width
         # Skip if cursor is scrollbar region.
         if in_scroll(event, region):
             return {'PASS_THROUGH'}
+
+        st = context.space_data
+        rh = region.height
+        x2 = lnum_margin_width_get(st)
         clicks = self.count_clicks(event)
         if clicks == 1:
             self.click_time = perf_counter()
-        if clicks == 2:
-            return bpy.ops.textension.drag_select('INVOKE_DEFAULT')
-        if clicks == 3:
-            self.clicks = 0
-            return self.select_line(context)
+
+        # Don't count towards clicks if cursor in line number margin.
+        in_marg = st.show_line_numbers and cursor_isect_xy(event, 0, x2, 0, rh)
+        do_line_sel = prefs.use_line_number_select and in_marg
+
+        if not do_line_sel:
+            if clicks == 2:
+                return bpy.ops.textension.drag_select('INVOKE_DEFAULT')
+            if clicks == 3:
+                self.clicks = 0
+                return self.select_line(context)
+
+        self.line_select = do_line_sel
         self.click_time = perf_counter()
-        # Cursor is on scroll bar, activate it instead.
-        if in_scroll(event, region):
-            return bpy.ops.text.scroll_bar('INVOKE_DEFAULT')
-
-        # If cursor is in margin, enable line selection.
-        # line_op = globals().get("TEXTENSION_OT_line_select")
-        op = TEXTENSION_OT_line_select
-        if op and op.in_margin() and prefs.use_line_number_select:
-            self.line_select = True
-
         self.active = True
-        st = context.space_data
-        rh = region.height
         lh = int(1.3 * (int(utils.wunits_get() * st.font_size) // 20))
         text = st.text
+        rw = region.width
 
         # Approximate cursor position (line).
         def cursor_pos_y(event):
@@ -1872,7 +1872,7 @@ class TEXTENSION_OT_line_select(utils.TextOperator):
     def in_margin(cls, state=None):
         if state is None:
             return getattr(cls, "_in_margin", False)
-        cls._margin = state
+        cls._in_margin = state
 
     # Stop when cursor isn't moving.
     @classmethod
@@ -1887,24 +1887,22 @@ class TEXTENSION_OT_line_select(utils.TextOperator):
     def modal(self, context, event):
         return self.modal_inner(context, event)
 
+    def in_region(self, x2, region, event):
+        state = cursor_isect_xy(event, 0, x2, 0, region.height)
+        self.in_margin(state)
+        return state
+
     def invoke(self, context, event):
         region = context.region
-        if self.operator_active() or region.type != 'WINDOW':
-            return {'CANCELLED'}
-
         st = context.space_data
-        if not st.show_line_numbers:
-            self.in_margin(False)
-            cursor = 'DEFAULT' if in_scroll(event, region) else 'TEXT'
-            context.window.cursor_set(cursor)
+        if self.operator_active() or region.type != 'WINDOW' or \
+           not st.show_line_numbers:
             return {'CANCELLED'}
 
         x2 = lnum_margin_width_get(st)
-        if not cursor_isect_x(event, 0, x2):
+        in_region = self.in_region
+        if not in_region(x2, region, event):
             return {'CANCELLED'}
-
-        def in_region(event):
-            return cursor_isect_xy(event, 0, x2, 0, region.height)
 
         ttl = monotonic() + 0.1
         self.operator_active(True)
@@ -1917,7 +1915,7 @@ class TEXTENSION_OT_line_select(utils.TextOperator):
             # Extend time-to-live.
             if event.type == 'MOUSEMOVE':
                 ttl = t + 0.1
-            if in_region(event):
+            if in_region(x2, region, event):
                 if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
                     bpy.ops.textension.cursor(line_select=True)
                     return self.timeout(context)
