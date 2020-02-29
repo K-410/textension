@@ -750,9 +750,10 @@ class TEXTENSION_OT_insert_internal(utils.TextOperator):
 
     def invoke(self, context, event):
         unicode = event.unicode
-        if not unicode or \
-            (event.alt and not self.test_alt(context, event)) or \
-                event.type == 'BACK_SPACE':
+        # TEXT_INPUT may trigger on non-printable keys on some keyboards.
+        # Escape these by passing them through the operator.
+        if event.type in {'DEL', 'BACK_SPACE'} or not unicode or \
+           event.alt and not self.test_alt(context, event):
             return {'PASS_THROUGH'}
 
         text = context.edit_text
