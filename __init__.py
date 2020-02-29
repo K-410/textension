@@ -1147,6 +1147,10 @@ class TEXTENSION_OT_expand_to_brackets(utils.TextOperator):
         tc = TextContext(context)
         body = tc.endl_body
         curl, curc, sell, selc = tc.cursor_sorted
+
+        # Multi-line expansion not supported.
+        if curl != sell:
+            return {'CANCELLED'}
         pos = range(curc, selc + 1)
 
         bopen = DefaultDict(("()", "[]", "{}"))
