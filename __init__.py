@@ -1814,32 +1814,38 @@ class TEXTENSION_OT_toggle_header(utils.TextOperator):
 
     @classmethod
     def register_keymaps(cls):
-        utils.kmi_new(cls, "Text Generic", cls.bl_idname, 'LEFT_ALT', 'PRESS')
+        utils.kmi_args(cls, "Text Generic", cls.bl_idname, "PRESS")
+        utils.kmi_new('LEFT_ALT')
+        utils.kmi_new('RIGHT_ALT')
 
     @classmethod
     def poll(cls, context):
         return getattr(context.space_data, "type", "") == 'TEXT_EDITOR'
 
-    _init_keys = {'LEFT_ALT', 'RIGHT_ALT'}
-    _ignore_keys = {'TIMER'}
-
     def modal(self, context, event):
-        if event.type not in self._ignore_keys:
-            if event.type in self._init_keys and event.value == 'RELEASE':
-                context.space_data.show_region_header ^= True
-            self.end = True
-            return {'PASS_THROUGH'}
-        if setdefault(self, "end", False):
-            context.window_manager.event_timer_remove(__class__._timer)
-            del __class__._timer
-            return {'CANCELLED'}
-        return {'RUNNING_MODAL'}
+        return self.modal_inner(context, event)
 
     def invoke(self, context, event):
+        end = False
         wm = context.window_manager
-        if getattr(__class__, "_timer", None) is not None:
-            wm.event_timer_remove(__class__._timer)
-        __class__._timer = wm.event_timer_add(0.1, window=context.window)
+        alts = {'LEFT_ALT', 'RIGHT_ALT'}
+        mouse = {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}
+        t = wm.event_timer_add(1 / 120, window=context.window)
+
+        def modal_inner(context, event):
+            nonlocal end
+            if end:
+                wm.event_timer_remove(t)
+                return {'CANCELLED'}
+            if event.type == 'TIMER':
+                return {'PASS_THROUGH'}
+            end = event.type not in alts | mouse
+            if not event.alt:
+                context.space_data.show_region_header ^= True
+                end = True
+            return {'PASS_THROUGH'}
+
+        self.modal_inner = modal_inner
         wm.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
