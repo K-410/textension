@@ -321,6 +321,7 @@ class TextContext:
 
     @curl.setter
     def curl(self, val: int):
+        val = max(0, min(val, len(self.lines) - 1))
         self.text.current_line_index = val
 
     @property
@@ -335,7 +336,7 @@ class TextContext:
 
     @curc.setter
     def curc(self, val: int):
-        val += (len(self.text.current_line.body) + 1) * val < 0
+        val = max(0, min(val, len(self.lines[self.curl].body)))
         self.text.current_character = val
 
     @property
@@ -352,6 +353,7 @@ class TextContext:
 
     @sell.setter
     def sell(self, val: int):
+        val = max(0, min(val, len(self.lines) - 1))
         self.text.select_end_line_index = val
 
     @property
@@ -366,7 +368,7 @@ class TextContext:
 
     @selc.setter
     def selc(self, val: int):
-        val += (len(self.endl_body) + 1) * val < 0
+        val = max(0, min(val, len(self.endl_body)))
         self.text.select_end_character = val
 
     @property
