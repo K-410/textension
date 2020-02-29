@@ -670,67 +670,48 @@ class TEXTENSION_OT_insert_internal(utils.TextOperator):
     init: bpy.props.BoolProperty(
         default=False, options={'SKIP_SAVE', 'HIDDEN'})
 
-    @utils.classproperty
     @classmethod
-    def cursor(cls):
-        return setdefault(cls, "_cursor", (-1,) * 4)
-
-    @cursor.setter
-    @classmethod
-    def cursor(cls, value):
+    def cursor(cls, value=None):
+        if value is None:
+            return setdefault(cls, "_cursor", (-1,) * 4)
         cls._cursor = value
 
-    @utils.classproperty
     @classmethod
-    def do_close(cls):
-        return setdefault(cls, "_do_close", False)
-
-    @do_close.setter
-    @classmethod
-    def do_close(cls, state):
+    def do_close(cls, state=None):
+        if state is None:
+            return setdefault(cls, "_do_close", False)
         cls._do_close = state
 
-    @utils.classproperty
     @classmethod
-    def c_next(cls):
-        return setdefault(cls, "_c_next", "")
-
-    @c_next.setter
-    @classmethod
-    def c_next(cls, char):
+    def c_next(cls, char=None):
+        if char is None:
+            return setdefault(cls, "_c_next", "")
         cls._c_next = char
 
-    def close(self, text, c_in):
-        curl, curc, sell, selc = self.cursor
-        c_in_r = ")]}\"\'"["([{\"\'".index(c_in)]
-        text.write("%s%s" % (Buffer.get().string_get(), c_in_r))
+    def close(self, tc, c_in):
+        curl, curc, sell, selc = self.cursor()
+        c_in_r = dict(("()", "[]", "{}", '""', "''"))[c_in]
+        tc.text.write("%s%s" % (Buffer.get().string_get(), c_in_r))
 
         # Add one to end if selection is inline.
-        text.select_set(curl, curc + 1, sell, selc + (curl == sell))
+        tc.select_set(curl, curc + 1, sell, selc + (curl == sell))
 
-    def write(self, text, c_in, advance=True):
-        curl, curc, *_ = self.cursor
-        pos = len(c_in) if advance else 0
-        text.write(c_in)
-        text.current_line_index = text.select_end_line_index = curl
-        text.current_character = text.select_end_character = curc + pos
-
-    def quote_insert(self, text, c_in):
-        if not self.do_close and self.c_next == c_in:
-            bpy.ops.text.delete(type='PREVIOUS_CHARACTER')
-            text.select_end_character += 1
-            text.current_character += 1
-
-        if self.do_close:
-            self.close(text, c_in)
+    def quote_insert(self, tc, c_in):
+        if not self.do_close():
+            if self.c_next() == c_in:
+                bpy.ops.text.delete(type='PREVIOUS_CHARACTER')
+                tc.selc += 1
+                tc.curc += 1
+        else:
+            self.close(tc, c_in)
         return {'FINISHED'}
 
-    def bracket_insert(self, text, c_in):
-        if c_in in ")]}" and self.c_next == c_in:
+    def bracket_insert(self, tc, c_in):
+        if c_in in ")]}" and self.c_next() == c_in:
             bpy.ops.text.delete(type='NEXT_CHARACTER')
 
-        if c_in in {"(", "[", "{"} and self.do_close:
-            self.close(text, c_in)
+        if c_in in {"(", "[", "{"} and self.do_close():
+            self.close(tc, c_in)
         return {'FINISHED'}
 
     # Test and pass alt so other operators can listen for it.
@@ -740,6 +721,7 @@ class TEXTENSION_OT_insert_internal(utils.TextOperator):
             return next((0 for k in kc.keymap_items
                         if k.alt and k.type == event.type), 1)
 
+    # Test to see if entered quote one of a pair or escape.
     def escape_quotes(self, text, c_in):
         body = text.select_end_line.body
         quote_strip = "".join(c for c in body if c not in "\\\"\\\'")
@@ -765,15 +747,18 @@ class TEXTENSION_OT_insert_internal(utils.TextOperator):
         if unicode not in "\"\'":
             allow_close.update("\"\'")
 
+        # 2nd pass.
         if not self.init:
+            tc = TextContext(context)
             if unicode in "{}()[]":
-                return self.bracket_insert(text, unicode)
+                return self.bracket_insert(tc, unicode)
             elif unicode in "\"\'":
-                return self.quote_insert(text, unicode)
+                return self.quote_insert(tc, unicode)
             return {'FINISHED'}
 
+        # Init (1st) pass.
         tc = TextContext(context)
-        self.cursor = tc.cursor_sorted
+        self.cursor(tc.cursor_sorted)
 
         # Check for escaping or uneven quotes.
         skip = self.escape_quotes(text, unicode)
@@ -784,9 +769,13 @@ class TEXTENSION_OT_insert_internal(utils.TextOperator):
 
         # If next character, return it, else False.
         # Use c_next to determine close bracket logic.
-        self.c_next = tc.lines[tc.sell].body[tc.selc:][:1] or False
-        self.do_close = prefs.closing_bracket
-        self.do_close &= tc.has_sel or (self.c_next in allow_close and skip)
+        self.c_next(tc.lines[tc.sell].body[tc.selc:][:1] or False)
+
+        # Determine whether to enclose in 2nd pass or not.
+        do_close = prefs.closing_bracket
+        do_close &= tc.has_sel or (self.c_next() in allow_close and skip)
+        self.do_close(do_close)
+        # If there's a selection, store it in case of enclosing brackets.
         buffer.string_set(tc.sel_string)
         return {'FINISHED'}
 
