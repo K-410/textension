@@ -1765,7 +1765,9 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
                 return bpy.ops.textension.drag_select('INVOKE_DEFAULT')
             if clicks == 3:
                 self.clicks = 0
-                return self.select_line(context)
+                if prefs.triple_click == 'LINE':
+                    return self.select_line(context)
+                return bpy.ops.textension.expand_to_path()
 
         self.line_select = do_line_sel
         self.click_time = perf_counter()

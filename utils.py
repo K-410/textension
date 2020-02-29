@@ -415,6 +415,13 @@ class TextensionPreferences(bpy.types.AddonPreferences):
         description="Enable to make line selection from line number margin",
         update=kmi_cb("line_select", "use_line_number_select"))
 
+    triple_click: bpy.props.EnumProperty(
+        default='LINE',
+        name="Triple Click",
+        description="Type of selection when doing a triple click",
+        items=(("LINE", "Line", "Select entire line"),
+               ("PATH", "Path", "Select entire python path")))
+
     def draw(self, context):
         layout = self.layout
         row = layout.row()
@@ -428,11 +435,15 @@ class TextensionPreferences(bpy.types.AddonPreferences):
 
         if self.tab == 'SETTINGS':
             col = mainrow.column()
-            # row = col.row()
-            # col.use_property_split = True
             col.scale_y = 1.25
             col.prop(self, "wheel_scroll_lines")
             col.prop(self, "scroll_speed", slider=True)
+            col.separator()
+            row = col.row()
+            row.scale_x = 0.4
+            split = row.split(factor=0.55)
+            split.label(text="Triple click selects ..")
+            split.row().prop(self, "triple_click", expand=True)
 
             layout.separator(factor=2)
             row = layout.row()
