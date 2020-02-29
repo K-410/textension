@@ -1366,12 +1366,20 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
         op.type = 'PAGEDN'
         op.select = True
 
+        op = kmi_new("UP_ARROW", ctrl=1, note="Nudge Up")
+        op.type = 'NUDGE'
+        op.lines = -1
+        op = kmi_new("DOWN_ARROW", ctrl=1, note="Nudge Down")
+        op.type = 'NUDGE'
+        op.lines = 1
+
     _items = (('PAGEUP', "Page Up", "Scroll up one page"),
               ('PAGEDN', "Page Down", "Scroll down one page"),
               ('TOP', "Top", "Scroll to top"),
               ('BOTTOM', "Bottom", "Scroll to bottom"),
               ('CURSOR', "To Cursor", "Scroll to cursor"),
-              ('JUMP', "Jump", "Jump to line"))
+              ('JUMP', "Jump", "Jump to line"),
+              ('NUDGE', "Nudge", "Nudge scroll by amount of lines"))
 
     type: bpy.props.EnumProperty(
         default='PAGEDN', items=_items, options={'SKIP_SAVE'})
@@ -1392,6 +1400,7 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
         view_half = tc.vlines // 2
         region = context.region
         top = st.top
+        type = self.type
 
         # Next cursor position.
         sell_dest = min(idx_max, tc.sell + tc.vlines)
@@ -1401,31 +1410,30 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
 
         def clamp_top(val):
             return 0 if val < 0 else idx_max if val > idx_max else val
+
         direction = 'DOWN'
-        if self.type == 'PAGEUP':
+        if type == 'NUDGE':
+            direction = 'DOWN' if self.lines > 0 else 'UP'
+            sell_dest = tc.sell
+            scroll_dest = clamp_top(st.top + self.lines)
+        elif type == 'PAGEUP':
             direction = 'UP'
             sell_dest = clamp_top(tc.sell - tc.vlines)
             scroll_dest = clamp_top(sell_dest - view_half)
-        elif self.type == 'TOP':
+        elif type == 'TOP':
             direction = 'UP'
             sell_dest = scroll_dest = 0
-        elif self.type == 'BOTTOM':
+        elif type == 'BOTTOM':
             direction = 'DOWN'
             sell_dest = idx_max
             scroll_dest = tc.lenl - view_half
-        elif self.type == 'CURSOR':
+        elif type == 'CURSOR':
             sell_dest = tc.sell
-            if sell_dest > tc.sell:
-                direction = 'DOWN'
-            else:
-                direction = 'UP'
+            direction = 'DOWN' if sell_dest > tc.sell else 'UP'
             scroll_dest = clamp_top(tc.sell - view_half)
-        elif self.type == 'JUMP':
+        elif type == 'JUMP':
             sell_dest = self.jump
-            if sell_dest > tc.sell:
-                direction = 'DOWN'
-            else:
-                direction = 'UP'
+            direction = 'DOWN' if sell_dest > tc.sell else 'UP'
             scroll_dest = clamp_top(sell_dest - view_half)
 
         offset = offset_lines_get(st, region.width, end=max(0, sell_dest))
@@ -1439,17 +1447,17 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
         view_top = top - offset + 2
         view_bottom = top - offset + tc.vlines - 2
 
-        if sell_dest not in range(view_top, view_bottom):
+        if sell_dest not in range(view_top, view_bottom) or type == 'NUDGE':
             bpy.ops.textension.scroll2(
                 'INVOKE_DEFAULT', lines=scroll_dest - top, direction=direction)
 
         # Ensure cursor position on destination line.
-        if self.type != 'CURSOR':
-            if self.type == 'TOP':
+        if type not in {'CURSOR', 'NUDGE'}:
+            if type == 'TOP':
                 pos = 0
-            elif self.type == 'BOTTOM':
+            elif type == 'BOTTOM':
                 pos = len(tc.lines[-1].body)
-            elif self.type == 'JUMP':
+            elif type == 'JUMP':
                 pos = min(self.char, len(tc.lines[sell_dest].body))
             else:
                 pos = min(len(tc.lines[sell_dest].body), tc.curc_sorted)
@@ -2061,7 +2069,7 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
         default='DOWN', name="Direction", description="Scroll direction",
         items=(('UP', "Up", "Scroll up"), ('DOWN', 'Down', "Scroll down")))
     lines: bpy.props.IntProperty(
-        default=-1,
+        default=0,
         name="Lines",
         description="Lines to scroll when called by script",
         options={'SKIP_SAVE'})
@@ -2087,7 +2095,7 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
     def invoke(self, context, event):
         up = self.direction == 'UP'
         # Scroll by external call.
-        if self.lines != -1:
+        if self.lines != 0:
             lines = self.lines
             frames = min(45, max(24, int(abs(lines) / 4)))
         # Mouse wheel scroll.
