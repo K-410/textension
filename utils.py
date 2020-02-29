@@ -205,7 +205,15 @@ def kmi_new(*args, **kwargs):
         _kmi_new = km.keymap_items.new_modal
     kmi = _kmi_new(idname, type, value, **kwargs)
     setdefault(cls, "_keymaps", []).append((km, kmi, note))
+    kmi_new.properties = kmi.properties
     return kmi.properties
+
+
+# Allow defining keymap item properties for last added keymap item.
+def kmi_op_args(**kwargs):
+    for key, val in kwargs.items():
+        setattr(kmi_new.properties, key, val)
+    del kmi_new.properties
 
 
 # Remove (addon) keymap item.

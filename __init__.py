@@ -1347,31 +1347,26 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
         utils.kmi_args(cls, "Text", cls.bl_idname, 'PRESS')
 
         kmi_new('HOME', ctrl=1, note="Scroll to Top").type = 'TOP'
-        op = kmi_new('HOME', ctrl=1, shift=1, note="Select to Top")
-        op.type = 'TOP'
-        op.select = True
+        kmi_new('HOME', ctrl=1, shift=1, note="Select to Top")
+        utils.kmi_op_args(type='TOP', select=True)
 
         kmi_new('END', ctrl=1, note="Scroll to Bottom").type = 'BOTTOM'
-        op = kmi_new('END', ctrl=1, shift=1, note="Select to Bottom")
-        op.type = 'BOTTOM'
-        op.select = True
+        kmi_new('END', ctrl=1, shift=1, note="Select to Bottom")
+        utils.kmi_op_args(type='BOTTOM', select=True)
 
         kmi_new('PAGE_UP', note="Scroll Page Up").type = 'PAGEUP'
-        op = kmi_new('PAGE_UP', shift=1, note="Select Page Up")
-        op.type = 'PAGEUP'
-        op.select = True
+        kmi_new('PAGE_UP', shift=1, note="Select Page Up")
+        utils.kmi_op_args(type='PAGEUP', select=True)
 
         kmi_new('PAGE_DOWN', note="Scroll Page Down").type = 'PAGEDN'
-        op = kmi_new('PAGE_DOWN', shift=1, note="Select Page Down")
-        op.type = 'PAGEDN'
-        op.select = True
+        kmi_new('PAGE_DOWN', shift=1, note="Select Page Down")
+        utils.kmi_op_args(type='PAGEDN', select=True)
 
-        op = kmi_new("UP_ARROW", ctrl=1, note="Nudge Scroll Up")
-        op.type = 'NUDGE'
-        op.lines = -1
-        op = kmi_new("DOWN_ARROW", ctrl=1, note="Nudge Scroll Down")
-        op.type = 'NUDGE'
-        op.lines = 1
+        kmi_new("UP_ARROW", ctrl=1, note="Nudge Scroll Up")
+        utils.kmi_op_args(type='NUDGE', lines=-1)
+
+        kmi_new("DOWN_ARROW", ctrl=1, note="Nudge Scroll Down")
+        utils.kmi_op_args(type='NUDGE', lines=1)
 
     _items = (('PAGEUP', "Page Up", "Scroll up one page"),
               ('PAGEDN', "Page Down", "Scroll down one page"),
