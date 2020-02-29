@@ -1215,6 +1215,46 @@ class TEXTENSION_OT_expand_to_brackets(utils.TextOperator):
         return {'CANCELLED'}
 
 
+class TEXTENSION_OT_expand_to_path(utils.TextOperator):
+    """Expand selection to data path"""
+    bl_idname = "textension.expand_to_path"
+    bl_label = "Expand to Path"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def register_keymaps(cls):
+        utils.kmi_new(cls, "Text", cls.bl_idname, 'W', 'PRESS', alt=1)
+
+    def execute(self, context):
+        tc = TextContext(bpy.context)
+        curl, curc, sell, selc = tc.cursor_sorted
+
+        # Multi-line is not supported.
+        if curl != sell:
+            return {'CANCELLED'}
+
+        # Lexical separators excluding period, which is part of a data path.
+        separator = {*" !\"#$%&\'()*+,-/:;<=>?@[\\]^`{|}~"}
+
+        line = tc.endl_body
+        strings = [line[selc:], line[:curc][::-1]]
+        boundary = []
+
+        while strings:
+            index = 0
+            for c in strings.pop():
+                if c in separator:
+                    break
+                index += 1
+            boundary.append(index)
+
+        assert len(boundary) == 2
+
+        tc.curc -= boundary[0]
+        tc.selc += boundary[1]
+        return {'FINISHED'}
+
+
 class TEXTENSION_OT_search_with_selection(utils.TextOperator):
     """Focus search with selected text"""
     bl_idname = "textension.search_with_selection"
