@@ -356,6 +356,13 @@ class TextensionPreferences(bpy.types.AddonPreferences):
         min=1,
         max=100)
 
+    nudge_scroll_lines: bpy.props.IntProperty(
+        default=3,
+        name="Nudge Scroll Lines",
+        description="Amount of lines to nudge scroll (ctrl + arrows)",
+        min=1,
+        max=100)
+
     use_smooth_scroll: bpy.props.BoolProperty(
         default=True,
         name="Smooth Scrolling",
@@ -437,6 +444,7 @@ class TextensionPreferences(bpy.types.AddonPreferences):
             col = mainrow.column()
             col.scale_y = 1.25
             col.prop(self, "wheel_scroll_lines")
+            col.prop(self, "nudge_scroll_lines")
             col.prop(self, "scroll_speed", slider=True)
             col.separator()
             row = col.row()

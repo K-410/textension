@@ -1366,10 +1366,10 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
         op.type = 'PAGEDN'
         op.select = True
 
-        op = kmi_new("UP_ARROW", ctrl=1, note="Nudge Up")
+        op = kmi_new("UP_ARROW", ctrl=1, note="Nudge Scroll Up")
         op.type = 'NUDGE'
         op.lines = -1
-        op = kmi_new("DOWN_ARROW", ctrl=1, note="Nudge Down")
+        op = kmi_new("DOWN_ARROW", ctrl=1, note="Nudge Scroll Down")
         op.type = 'NUDGE'
         op.lines = 1
 
@@ -1415,7 +1415,8 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
         if type == 'NUDGE':
             direction = 'DOWN' if self.lines > 0 else 'UP'
             sell_dest = tc.sell
-            scroll_dest = clamp_top(st.top + self.lines)
+            lines = st.top + self.lines * prefs.nudge_scroll_lines
+            scroll_dest = clamp_top(lines)
         elif type == 'PAGEUP':
             direction = 'UP'
             sell_dest = clamp_top(tc.sell - tc.vlines)
