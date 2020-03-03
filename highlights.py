@@ -84,13 +84,6 @@ def to_frames(lineh, pts, y_ofs):
             [(a + y1, b + y1, a + y2, b + y2) for a, b, _ in pts]]),)
 
 
-# Find character width
-def get_cw(loc, firstx, lines):
-    for idx, line in enumerate(lines):
-        if len(line.body) > 1:
-            return loc(idx, 1)[0] - firstx
-
-
 # Find all occurrences and generate points to draw rects
 def get_non_wrapped_pts(context, st, substr, selr, lineh, wunits):
     pts = []
@@ -110,7 +103,7 @@ def get_non_wrapped_pts(context, st, substr, selr, lineh, wunits):
 
     # Distance in px from document top
     first_x, first_y = loc(0, 0)
-    x_offset = cw = get_cw(loc, first_x, lines)
+    x_offset = cw = cwidth_get(st)
 
     # Some arbitrary offset because they broke loc()
     y_offset = first_y - (top * lh) - (rh - lh)
@@ -176,14 +169,13 @@ def calc_top(lines, maxy, lineh, rh, yoffs, char_max):
                 found = True
                 top = idx
         wrap_offset -= lineh
+
+        if len(line.body) < char_max:
+            continue
         pos = start = 0
         end = char_max
 
-        body = line.body
-        if len(body) < char_max:
-            continue
-
-        for c in body:
+        for pos, c in enumerate(line.body):
             if pos - start >= char_max:
                 wrap_span_px += lineh
                 if wrap_offset < rh:
@@ -195,7 +187,6 @@ def calc_top(lines, maxy, lineh, rh, yoffs, char_max):
                 end += char_max
             elif c in " -":
                 end = pos + 1
-            pos += 1
     return top, wrap_span_px
 
 
@@ -236,7 +227,7 @@ def get_wrapped_pts(context, st, substr, selr, lineh, wunits):
 
     loc = st.region_location_from_cursor
     first_x, first_y = loc(0, 0)
-    x_offset = cw = get_cw(loc, first_x, lines)
+    x_offset = cw = cwidth_get(st)
 
     if st.show_line_numbers:
         x_offset += cw * (len(repr(len(lines))) + 2)
@@ -364,26 +355,20 @@ def get_wrapped_pts(context, st, substr, selr, lineh, wunits):
     return pts, scrollpts, y_offset
 
 
-# for calculating offsets and max displayable characters
-# source/blender/windowmanager/intern/wm_window.c$515
-def get_widget_unit(context):
-    system = context.preferences.system
-    p = system.pixel_size
-    dpi = system.dpi
-    pd = p * dpi
-    wu = int((pd * 20 + 36) / 72 + (2 * (p - pd // 72)))
-    return wu
+# # For calculating offsets and max displayable characters:
+# # source/blender/windowmanager/intern/wm_window.c$515
+# Lazy initialize.
+def wunits_get():
+    global wunits_get
+    from .utils import wunits_get
+    return wunits_get()
 
 
-def cwidth_get(st, wunits):
-    for idx, line in enumerate(st.text.lines):
-        if line.body:
-            loc = st.region_location_from_cursor
-            return loc(idx, 1)[0] - loc(idx, 0)[0]
-
-    # Approx fallback width
-    blf.size(1, st.font_size, 72)
-    return round(blf.dimensions(1, "W")[0] * (wunits * 0.05))
+# Lazy initialize.
+def cwidth_get(st):
+    global cwidth_get
+    from . import cwidth_get
+    return cwidth_get(st)
 
 
 def coords_get(context, st, *args):
@@ -413,13 +398,13 @@ def draw_highlights(context):
         substr = substr.lower()
 
     if len(substr) >= prefs.min_str_len and curl == text.select_end_line:
-        scroll_ofs = scroll_offset_get(context)
-        wunits = get_widget_unit(context)
+        scroll_ofs = scroll_offset_get(st)
+        wunits = wunits_get()
         lheight = int(1.3 * (int(wunits * st.font_size) // 20))
 
         args = context, st, substr, selr, lheight, wunits
         pts, scrollpts, offset = coords_get(*args)
-        cw = cwidth_get(st, wunits)
+        cw = cwidth_get(st)
 
         args = lheight, pts, -offset + scroll_ofs
         glEnable(GL_BLEND)

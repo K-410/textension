@@ -51,8 +51,10 @@ class Mixin:
 
         # Register keymaps first.
         # Set macro defines, etc.
-        call(cls, "register_keymaps")
-        call(cls, "_register")
+        if hasattr(cls, "register_keymaps"):
+            cls.register_keymaps()
+        if hasattr(cls, "_register"):
+            cls._register()
 
         keymaps = getattr(cls, "_keymaps", None)
         if keymaps is None:
@@ -81,15 +83,9 @@ class Mixin:
 
     @classmethod
     def unregister(cls):
-        call(cls, "_unregister")
+        if hasattr(cls, "_unregister"):
+            cls._unregister()
         kmi_remove(cls)
-
-
-def call(obj, key):
-    try:
-        return getattr(obj, key)()
-    except (AttributeError, TypeError):
-        return False
 
 
 class TextOperator(Mixin, bpy.types.Operator):
@@ -152,9 +148,11 @@ def wunits_get():
     return _wunits_get
 
 
+# System pointer is persistent, so bind it in a closure for faster access.
 wunits_get = wunits_get()
 
 
+# Do in-place addition with a default value.
 def iadd_default(obj, key, default, value):
     ivalue = getattr(obj, key, default) + value
     setattr(obj, key, ivalue)
@@ -175,7 +173,6 @@ def kmi_args(*args, **kwargs):
 
 
 # Add a new keymap item.
-# def kmi_new(cls, kmname, idname, type, value, **kwargs):
 def kmi_new(*args, **kwargs):
     if len(args) < 5:
         kwargs.update(kmi_args.kwargs)
@@ -185,6 +182,9 @@ def kmi_new(*args, **kwargs):
             cls, kmname, idname, value = kmi_args.args
     else:
         cls, kmname, idname, type, value = args
+
+    kmi_args.args = cls, kmname, idname, value
+
     kc = bpy.context.window_manager.keyconfigs
     active = kc.active.keymaps.get(kmname)
     if not active:
@@ -199,6 +199,8 @@ def kmi_new(*args, **kwargs):
                          region_type=active.region_type,
                          modal=active.is_modal)
 
+    # Notes are generally for displaying a custom label in the kmi ui, but
+    # can also be used to hide internal kmis with "HIDDEN".
     note = kwargs.pop("note", "")
     _kmi_new = km.keymap_items.new
     if km.is_modal:
@@ -220,11 +222,11 @@ def kmi_op_args(**kwargs):
 def kmi_remove(cls):
     for km, kmi, _ in setdefault(cls, "_keymaps", []):
         km.keymap_items.remove(kmi)
-    cls._keymaps.clear()
+    del cls._keymaps[:], cls._keymaps
 
     for kmi in setdefault(cls, "_disabled", []):
         kmi.active = True
-    cls._disabled.clear()
+    del cls._disabled[:], cls._disabled
 
 
 def defer_call(delay, func, *args, **kwargs):
@@ -237,9 +239,7 @@ def kmi_mute(cls, space: str, **kwargs):
 
     # Should not happen unless argument is invalid
     if setdefault(kmi_mute, "retries", 10) <= 0:
-        idname = kwargs.get("idname")
-        print("Error muting: %s on %s" % (idname, cls))
-        # raise Exception("%s on %s" % (cls, idname))
+        print("Error muting: %s on %s" % (kwargs.get("idname"), cls))
 
     kc = bpy.context.window_manager.keyconfigs.active
     km = kc.keymaps.get(space)
@@ -250,13 +250,11 @@ def kmi_mute(cls, space: str, **kwargs):
                     break
             else:
                 kmi.active = False
-                setdefault(cls, "_disabled", []).append(kmi)
-                return
+                return setdefault(cls, "_disabled", []).append(kmi)
 
         else:
             kmi_mute.retries -= 1
-            defer_call(0.2, kmi_mute, cls, space, **kwargs)
-            return
+            return defer_call(0.2, kmi_mute, cls, space, **kwargs)
 
     # Keymap doesn't exist???
     raise Exception("%s missing from keymap %s" % (space, kc))
@@ -277,8 +275,7 @@ def setdefault(obj, key, value, get=False):
 
 
 def _kmi_sync():
-    _cls = None
-    data = None
+    _cls = data = None
     op_get = prefs().operators.get
 
     def kmi_ensure(cls, idx, kmi):
@@ -328,17 +325,18 @@ def kmi_update(idname, state, all=True):
 # kmi update callback.
 def kmi_cb(idname, key, all=True):
     def cb(self, context):
-        state = getattr(self, key)
-        return kmi_update(idname, state, all)
+        return kmi_update(idname, getattr(self, key), all)
     return cb
 
 
 class TextensionPreferences(bpy.types.AddonPreferences):
     """Textension Addon Preferences"""
     bl_idname = __package__
+
     from .highlights import HighlightOccurrencesPrefs, draw_hlite_prefs
     if not HighlightOccurrencesPrefs.is_registered:
         bpy.utils.register_class(HighlightOccurrencesPrefs)
+
     # Custom keymaps per operator are stored here.
     operators: bpy.props.CollectionProperty(type=Operators)
     highlights: bpy.props.PointerProperty(type=HighlightOccurrencesPrefs)
@@ -362,14 +360,14 @@ class TextensionPreferences(bpy.types.AddonPreferences):
         name="Wheel Scroll Lines",
         description="Amount of lines to scroll per wheel tick",
         min=1,
-        max=100)
+        soft_max=10)
 
     nudge_scroll_lines: bpy.props.IntProperty(
         default=3,
         name="Nudge Scroll Lines",
         description="Amount of lines to nudge scroll (ctrl + arrows)",
         min=1,
-        max=100)
+        soft_max=10)
 
     use_smooth_scroll: bpy.props.BoolProperty(
         default=True,
@@ -441,7 +439,8 @@ class TextensionPreferences(bpy.types.AddonPreferences):
         layout = self.layout
         row = layout.row()
         row.alignment = 'CENTER'
-        row.scale_y = 1.25
+        row.scale_x = 0.5
+        row.scale_y = 1.4
         row.prop(self, "tab", expand=True)
         layout.separator(factor=2)
 
@@ -451,14 +450,25 @@ class TextensionPreferences(bpy.types.AddonPreferences):
         if self.tab == 'SETTINGS':
             col = mainrow.column()
             col.scale_y = 1.25
-            col.prop(self, "wheel_scroll_lines")
-            col.prop(self, "nudge_scroll_lines")
-            col.prop(self, "scroll_speed", slider=True)
+            col.scale_x = 0.7
+            row = col.row()
+            split = row.split(factor=0.5)
+            split.label(text="Wheel Scroll Lines")
+            split.prop(self, "wheel_scroll_lines", text="", slider=True)
+
+            row = col.row()
+            split = row.split(factor=0.5)
+            split.label(text="Nudge Scroll Lines")
+            split.prop(self, "nudge_scroll_lines", text="", slider=True)
+            row = col.row()
+            split = row.split(factor=0.5)
+            split.label(text="Smooth Scroll Speed")
+            split.prop(self, "scroll_speed", slider=True, text="")
             col.separator()
             row = col.row()
             row.scale_x = 0.4
-            split = row.split(factor=0.55)
-            split.label(text="Triple click selects ..")
+            split = row.split(factor=0.5)
+            split.label(text="Triple clicking selects:")
             split.row().prop(self, "triple_click", expand=True)
 
             layout.separator(factor=2)
@@ -514,17 +524,21 @@ class TextensionPreferences(bpy.types.AddonPreferences):
 
 
 def draw_kmi(layout, rw, kmi, note):
-    layout.ui_units_x = min(20, rw / 20)
-    # layout.ui_units_x = 20
+    layout.ui_units_x = min(22, rw / 20)
     mainrow = layout.row()
-    mainrow.prop(kmi, "active", text="", emboss=False)
-    mainrow.active = kmi.active
-    mainrow.emboss = 'NONE'
-    mainrow.prop(kmi, "show_expanded", text=note or kmi.name)
+    inner_row = mainrow.row()
+    inner_row.alignment = 'LEFT'
+    inner_row.prop(kmi, "active", text="", emboss=False)
+    inner_row.active = kmi.active
+    inner_row.emboss = 'NONE'
+    inner_row.prop(kmi, "show_expanded", text=note or kmi.name)
+
     if kmi.active:
         row = mainrow.row(align=True)
+        row.alignment = 'RIGHT'
         row.emboss = 'NORMAL'
         row.prop(kmi, "type", text="", full_event=True)
+
         if kmi.show_expanded:
             split = layout.split(factor=0.1)
             split.separator()
@@ -587,6 +601,13 @@ class wmEvent(ctypes.Structure):
         return None
 
 
+class DrawCache(ctypes.Structure):
+    _fields_ = (
+        ("line_height", ctypes.POINTER(ctypes.c_int)),
+        ("total_lines", ctypes.c_int),
+        ("nlines", ctypes.c_int))
+
+
 def listbase(type_=None):
     import ctypes
     type_ptr = ctypes.POINTER(type_)
@@ -643,7 +664,9 @@ SpaceText_Runtime._fields_ = (
     ("line_numbers", ctypes.c_int),
     ("viewlines", ctypes.c_int),
     ("scroll_px_per_line", ctypes.c_float),
-    ("_offs_px", ctypes.c_int * 2)
+    ("_offs_px", ctypes.c_int * 2),
+    ("_pad1", ctypes.c_char * 4),
+    ("drawcache", ctypes.POINTER(DrawCache))
 )
 SpaceText._fields_ = (
     ("links", ctypes.c_void_p * 2),
@@ -686,11 +709,11 @@ ST_FLAGS_OFFS = SpaceText.flags.offset
 
 def _scroll_offset_get():
     import ctypes
-    p = ctypes.POINTER(ctypes.c_int * 2)
-    from_addr = p.from_address
+    ivec2_p = ctypes.POINTER(ctypes.c_int * 2)
+    from_addr = ivec2_p.from_address
 
-    def scroll_offset_get(context):
-        ret = p(from_addr(SCROLL_OFFS + context.space_data.as_pointer()))
+    def scroll_offset_get(st):
+        ret = ivec2_p(from_addr(SCROLL_OFFS + st.as_pointer()))
 
         if ret and ret.contents:
             return ret.contents[1]
@@ -727,6 +750,16 @@ def st_runtime():
             if scroll_max is None:
                 scroll_max = len(st.text.lines)
             self.scroll_max = scroll_max
+            self.runtime = runtime
+            # self.drawcache = runtime.drawcache.contents
+
+        @property
+        def nlines(self):
+            return self.runtime.drawcache.contents.nlines
+
+        @property
+        def total_lines(self):
+            return self.runtime.drawcache.contents.total_lines
 
         @property
         def offset_px(self):

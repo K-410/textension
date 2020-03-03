@@ -34,6 +34,7 @@ setdefault = utils.setdefault
 iadd_default = utils.iadd_default
 STRuntime = utils.STRuntime
 wunits_get = utils.wunits_get
+kmi_new = utils.kmi_new
 
 
 def cursor_history_add(context, *args, **kwargs):
@@ -109,7 +110,7 @@ def copy_string(context, cut=False):
     buffer.string_set(tc.sel_string_ex)
     if not tc.has_sel and not cut:
         tc.cursor = curl, curc
-    # TODO use bpy.ops.text.copy.
+    # TODO use bpy.ops.text.copy?
     context.window_manager.clipboard = tc.sel_string
 
 
@@ -159,16 +160,17 @@ def cwidth_get(st) -> int:
 
 
 # Get wrap offset (in lines) between 'start' and 'end'.
-def offset_lines_get(st, rw, start=0, end=0) -> int:
+def offl_get(st, rw, start=0, end=None) -> int:
+    if not st.show_word_wrap:
+        return 0
     text = st.text
     lines = text.lines
-    pad = cwidth = cwidth_get(st)
-    if st.show_line_numbers:
-        pad *= lnum_digits_get(text) + 3
-    c_max = max((rw - utils.wunits_get() - pad) // cwidth, 8)
+    c_max = c_max_get(st, rw)
+    if end is None:
+        end = len(lines)
 
     offset = 0
-    for idx, line in enumerate(lines[start:end or len(lines)], start):
+    for idx, line in enumerate(lines[start:end], start):
         body = line.body
         if len(body) < c_max:
             continue
@@ -184,11 +186,99 @@ def offset_lines_get(st, rw, start=0, end=0) -> int:
     return offset
 
 
-# Get maximum allowed to scroll (highest st.top). Same as Blender vanilla op.
-def scroll_max_get(st, rw) -> int:
-    offl = st.show_word_wrap and offset_lines_get(st, rw)
-    view_half = st.visible_lines // 2
-    return len(st.text.lines) - view_half + offl
+# Get the absolute line/col from skipping screen space lines.
+def skip_lines(context, numlines, line, col):
+    st = context.space_data
+    lines = st.text.lines
+    if not st.show_word_wrap:
+        return clamp(min(len(lines) - 1, line + numlines)), 0
+
+    wrap_lines = deque()
+
+    # Append to the right.
+    if numlines > 0:
+        start = line
+        end = line + numlines
+        append = wrap_lines.append
+    # Append to the left.
+    else:
+        numlines = -numlines - 1
+        start = clamp(line - numlines)
+        end = line
+        append = wrap_lines.appendleft
+
+    # Append each wrap, storing line index and start offset.
+    c_max = c_max_get(st, context.region.width)
+    for idx, line in enumerate(lines[start:end], start):
+        body = line.body
+        if len(body) <= c_max:
+            append((idx, 0))
+            continue
+
+        c_start = 0
+        c_end = c_max
+        for c_pos, c in enumerate(body):
+            if c_pos - c_start >= c_max:
+                append((idx, c_start))
+                c_start = c_end
+                c_end += c_max
+            elif c in " -":
+                c_end = c_pos + 1
+        append((idx, c_start))
+
+    # Find the line and offset by counting relative lines.
+    # If idx is not greater than numlines, return the last element.
+    if wrap_lines:
+        for idx, (line_idx, offset) in enumerate(wrap_lines, 2):
+            if idx > numlines:
+                break
+        return line_idx, offset
+
+    return line, 0
+
+
+# Get the wrap offset (in lines) by current cursor position.
+def offl_by_col(context, line, col) -> int:
+    st = context.space_data
+    if not st.show_word_wrap:
+        return 0
+    body = context.edit_text.lines[line].body
+    c_max = c_max_get(st, context.region.width)
+
+    if len(body) < c_max:
+        return 0
+
+    offset = c_start = 0
+    c_end = c_max
+    for c_pos, c in enumerate(body):
+        if c_start >= col:
+            return offset
+        if c_pos - c_start >= c_max:
+            offset += 1
+            c_start = c_end
+            c_end += c_max
+        elif c in " -":
+            c_end = c_pos + 1
+    return offset
+
+
+# Get the maximum number of characters to display with word wrap.
+def c_max_get(st, rw, cwidth=None):
+    if cwidth is None:
+        cwidth = cwidth_get(st)
+    pad = cwidth
+    if st.show_line_numbers:
+        pad *= lnum_digits_get(st.text) + 3
+    return max((rw - wunits_get() - pad) // cwidth, 8)
+
+
+def clamp(val, limit=0) -> int:
+    return limit if val < limit else val
+
+
+# More performant way of calling bpy.ops.textenison.scroll2.
+def scroll(*args, **kwargs):
+    return _call("TEXTENSION_OT_scroll2", {}, kwargs, 'INVOKE_DEFAULT')
 
 
 # A text manager to store runtime data. For now just storing cursor history.
@@ -220,6 +310,7 @@ class TextMan:
                 self.scroll()
                 return True
 
+        # Jump cursor to a point in history.
         def scroll(self) -> set:
             line, char = self.history[self.head]
             return bpy.ops.textension.scroll(
@@ -246,7 +337,7 @@ class TextMan:
 
             # Update if within 10 lines of previous history. Force update with
             # replace=True.
-            if replace or line in range(max(0, prev - 10), prev + 10):
+            if replace or line in range(clamp(prev - 10), prev + 10):
                 history[0] = line, char
                 return True
 
@@ -321,7 +412,7 @@ class TextContext:
 
     @curl.setter
     def curl(self, val: int):
-        val = max(0, min(val, len(self.lines) - 1))
+        val = clamp(min(val, len(self.lines) - 1))
         self.text.current_line_index = val
 
     @property
@@ -336,7 +427,7 @@ class TextContext:
 
     @curc.setter
     def curc(self, val: int):
-        val = max(0, min(val, len(self.lines[self.curl].body)))
+        val = clamp(min(val, len(self.lines[self.curl].body)))
         self.text.current_character = val
 
     @property
@@ -353,7 +444,7 @@ class TextContext:
 
     @sell.setter
     def sell(self, val: int):
-        val = max(0, min(val, len(self.lines) - 1))
+        val = clamp(min(val, len(self.lines) - 1))
         self.text.select_end_line_index = val
 
     @property
@@ -368,7 +459,7 @@ class TextContext:
 
     @selc.setter
     def selc(self, val: int):
-        val = max(0, min(val, len(self.endl_body)))
+        val = clamp(min(val, len(self.endl_body)))
         self.text.select_end_character = val
 
     @property
@@ -443,6 +534,27 @@ class TextContext:
                 return indent % tab_width and tab_width or indent
         return tab_width
 
+    # Return line height in pixels.
+    @property
+    def lheight(self):
+        return self.rt.lheight
+
+    # Internal. Exposes SpaceText_Runtime.
+    @property
+    def rt(self):
+        if not hasattr(self, "_rt"):
+            self._rt = STRuntime(bpy.context)
+        return self._rt
+
+    # Return number of lines including wrapped sub lines.
+    @property
+    def wrap_lines(self):
+        return self.rt.total_lines
+
+    @property
+    def scroll_max(self):
+        return self.wrap_lines - ((self.view_lines_safe // 2 * 2) // 2)
+
     @property
     def lines(self):
         return self.text.lines
@@ -464,12 +576,20 @@ class TextContext:
             self.__tab__ = __tab = self._tab()
         return __tab
 
+    # Get the amount of fully visible lines.
+    @property
+    def view_lines_safe(self):
+        return bpy.context.region.height // STRuntime(bpy.context).lheight
+
+    @property
+    def view_lines(self):
+        return self.st.visible_lines
+
     # TODO Lazy load some attributes eg. text selection.
     def __init__(self, context):
         self.st = st = context.space_data
         self.text = text = st.text
         self.select_set = text.select_set
-        self.vlines = st.visible_lines
         self._curl = self._curc = \
             self._sell = self._selc = None
         self._sel_string = None
@@ -539,37 +659,18 @@ class TEXTENSION_OT_cut_internal(utils.TextOperator):
     init: bpy.props.BoolProperty(
         default=False, options={'SKIP_SAVE', 'HIDDEN'})
 
-    @utils.classproperty
-    @classmethod
-    def has_selection(cls):
-        return setdefault(cls, "_has_selection", False)
-
-    @has_selection.setter
-    @classmethod
-    def has_selection(cls, state):
-        cls._has_selection = state
-
-    @utils.classproperty
-    @classmethod
-    def cursor(cls):
-        return setdefault(cls, "_cursor", None)
-
-    @cursor.setter
-    @classmethod
-    def cursor(cls, state):
-        cls._cursor = state
-
     def execute(self, context):
         tc = TextContext(context)
+        cls = __class__
         if self.init:
-            self.has_selection = tc.has_sel
-            self.cursor = tc.cursor_sorted
+            cls.has_selection = tc.has_sel
+            cls._cursor = tc.cursor_sorted
             copy_string(context, cut=True)
         else:
-            if self.cursor:
+            if getattr(cls, "_cursor", None) is not None:
                 # Move cursor to the end of previous line.
                 if tc.curl_ext == tc.lenl - 1:
-                    if not self.has_selection:
+                    if not getattr(cls, "_has_selection", False):
                         tc.cursor = tc.curl, len(tc.endl_body)
         return {'FINISHED'}
 
@@ -581,9 +682,9 @@ class TEXTENSION_OT_cut(utils.TextMacro):
 
     @classmethod
     def register_keymaps(cls):
-        name = cls.bl_idname
-        utils.kmi_new(cls, "Text", name, 'X', 'PRESS', ctrl=1)
-        utils.kmi_new(cls, "Screen Editing", name, 'X', 'PRESS', ctrl=1)
+        kmi_new(cls, "Text", cls.bl_idname, 'X', 'PRESS', ctrl=1)
+        kmi_new(cls, "Screen Editing", cls.bl_idname, 'X', 'PRESS',
+                ctrl=1, note="HIDDEN")
 
     @classmethod
     def _register(cls):
@@ -598,9 +699,9 @@ class TEXTENSION_OT_copy(utils.TextOperator):
 
     @classmethod
     def register_keymaps(cls):
-        name = cls.bl_idname
-        utils.kmi_new(cls, "Text", name, 'C', 'PRESS', ctrl=1)
-        utils.kmi_new(cls, "Screen Editing", name, 'C', 'PRESS', ctrl=1)
+        kmi_new(cls, "Text", cls.bl_idname, 'C', 'PRESS', ctrl=1)
+        kmi_new(cls, "Screen Editing", cls.bl_idname, 'C', 'PRESS',
+                ctrl=1, note="HIDDEN")
 
     def execute(self, context):
         copy_string(context)
@@ -615,33 +716,24 @@ class TEXTENSION_OT_paste_internal(utils.TextOperator):
     init: bpy.props.BoolProperty(
         default=False, options={'SKIP_SAVE', 'HIDDEN'})
 
-    @utils.classproperty
-    @classmethod
-    def cursor(cls):
-        return setdefault(cls, "_cursor", None)
-
-    @cursor.setter
-    @classmethod
-    def cursor(cls, state):
-        cls._cursor = state
-
     def execute(self, context):
+        cls = __class__
         if self.init:
             buffer = Buffer.get()
             string = buffer.string_get()
             wm = context.window_manager
             if buffer.state_get() and string == wm.clipboard:
                 tc = TextContext(context)
-                self.cursor = tc.cursor
+                cls._cursor = tc.cursor
                 type = 'LINE_END' if tc.curl == tc.lenl - 1 else 'LINE_BEGIN'
                 bpy.ops.text.move(type=type)
             return {'FINISHED'}
 
-        if self.cursor is not None:
+        if getattr(cls, "_cursor", None):
             tc = TextContext(context)
-            curl, curc, _, _ = self.cursor
+            curl, curc, _, _ = cls._cursor
             tc.cursor = curl + 1, curc
-            self.cursor = None
+            cls._cursor = None
 
         return {'FINISHED'}
 
@@ -654,8 +746,9 @@ class TEXTENSION_OT_paste(utils.TextMacro):
     @classmethod
     def register_keymaps(cls):
         name = cls.bl_idname
-        utils.kmi_new(cls, "Text", name, 'V', 'PRESS', ctrl=1)
-        utils.kmi_new(cls, "Screen Editing", name, 'V', 'PRESS', ctrl=1)
+        kmi_new(cls, "Text", name, 'V', 'PRESS', ctrl=1)
+        kmi_new(cls, "Screen Editing", cls.bl_idname, 'V', 'PRESS',
+                ctrl=1, note="HIDDEN")
 
     @classmethod
     def _register(cls):
@@ -789,9 +882,9 @@ class TEXTENSION_OT_insert(utils.TextMacro):
 
     @classmethod
     def register_keymaps(cls):
-        utils.kmi_new(cls, "Text", cls.bl_idname, 'TEXTINPUT', 'ANY')
-        utils.kmi_mute(cls, "Text", idname="text.insert", type='TEXTINPUT')
         args = cls, "Text"
+        kmi_new(*args, cls.bl_idname, 'TEXTINPUT', 'ANY', note="HIDDEN")
+        utils.kmi_mute(*args, idname="text.insert", type='TEXTINPUT')
         utils.kmi_mute(*args, idname="text.delete", type='BACK_SPACE', ctrl=0)
         utils.kmi_mute(*args, idname="text.delete", type='BACK_SPACE', ctrl=1)
 
@@ -843,8 +936,9 @@ class TEXTENSION_OT_delete(utils.TextMacro):
     @classmethod
     def register_keymaps(cls):
         args = cls, "Text"
-        utils.kmi_new(*args, cls.bl_idname, 'BACK_SPACE', 'PRESS')
-        utils.kmi_new(*args, cls.bl_idname, 'BACK_SPACE', 'PRESS', ctrl=1)
+        kmi_new(*args, cls.bl_idname, 'BACK_SPACE', 'PRESS')
+        kmi_new(*args, cls.bl_idname, 'BACK_SPACE', 'PRESS', ctrl=1,
+                note="Delete Word")
         utils.kmi_mute(*args, idname="text.delete", type='BACK_SPACE', ctrl=1)
         utils.kmi_mute(*args, idname="text.delete", type='BACK_SPACE', ctrl=0)
 
@@ -908,7 +1002,7 @@ class TEXTENSION_OT_extend_selection(utils.TextOperator):
     @classmethod
     def register_keymaps(cls):
         name = cls.bl_idname
-        utils.kmi_new(cls, "Text", name, 'LEFTMOUSE', 'PRESS', shift=1)
+        kmi_new(cls, "Text", name, 'LEFTMOUSE', 'PRESS', shift=1)
 
     _stop_keys = {'LEFTMOUSE', 'RIGHTMOUSE', 'MIDDLEMOUSE',
                   'ESC', 'SPACE', 'RET'}
@@ -1041,11 +1135,11 @@ class TEXTENSION_OT_line_break(utils.TextMacro):
     @classmethod
     def register_keymaps(cls):
         utils.kmi_args(cls, "Text", cls.bl_idname, 'PRESS')
-        utils.kmi_new('RET')
-        utils.kmi_new('RET', ctrl=1)
-        utils.kmi_new('RET', shift=1)
-        utils.kmi_new('NUMPAD_ENTER')
-        utils.kmi_new('NUMPAD_ENTER', ctrl=1)
+        kmi_new('RET')
+        kmi_new('RET', ctrl=1, note="Line Break Jump")
+        kmi_new('RET', shift=1, note="Line Break Context")
+        kmi_new('NUMPAD_ENTER', note="HIDDEN")
+        kmi_new('NUMPAD_ENTER', ctrl=1, note="HIDDEN")
 
     @classmethod
     def _register(cls):
@@ -1099,7 +1193,7 @@ class TEXTENSION_OT_unindent(utils.TextMacro):
 
     @classmethod
     def register_keymaps(cls):
-        utils.kmi_new(cls, "Text", cls.bl_idname, 'TAB', 'PRESS', shift=1)
+        kmi_new(cls, "Text", cls.bl_idname, 'TAB', 'PRESS', shift=1)
 
     @classmethod
     def _register(cls):
@@ -1115,8 +1209,9 @@ class TEXTENSION_OT_move_toggle(utils.TextOperator):
 
     @classmethod
     def register_keymaps(cls):
-        utils.kmi_new(cls, "Text", cls.bl_idname, 'HOME', 'PRESS')
-        utils.kmi_new(cls, "Text", cls.bl_idname, 'HOME', 'PRESS', shift=1)
+        kmi_new(cls, "Text", cls.bl_idname, 'HOME', 'PRESS')
+        kmi_new(cls, "Text", cls.bl_idname, 'HOME', 'PRESS', shift=1,
+                note="Move Toggle Select")
 
     def invoke(self, context, event):
         tc = TextContext(context)
@@ -1141,7 +1236,7 @@ class TEXTENSION_OT_expand_to_brackets(utils.TextOperator):
 
     @classmethod
     def register_keymaps(cls):
-        utils.kmi_new(cls, "Text", cls.bl_idname, 'A', 'PRESS', alt=1)
+        kmi_new(cls, "Text", cls.bl_idname, 'A', 'PRESS', alt=1)
 
     def execute(self, context):
         tc = TextContext(context)
@@ -1223,7 +1318,7 @@ class TEXTENSION_OT_expand_to_path(utils.TextOperator):
 
     @classmethod
     def register_keymaps(cls):
-        utils.kmi_new(cls, "Text", cls.bl_idname, 'W', 'PRESS', alt=1)
+        kmi_new(cls, "Text", cls.bl_idname, 'W', 'PRESS', alt=1)
 
     def execute(self, context):
         tc = TextContext(bpy.context)
@@ -1262,7 +1357,7 @@ class TEXTENSION_OT_search_with_selection(utils.TextOperator):
 
     @classmethod
     def register_keymaps(cls):
-        utils.kmi_new(cls, "Text Generic", cls.bl_idname, 'F', 'PRESS', ctrl=1)
+        kmi_new(cls, "Text Generic", cls.bl_idname, 'F', 'PRESS', ctrl=1)
 
     def execute(self, context):
         tc = TextContext(context)
@@ -1305,37 +1400,6 @@ class TEXTENSION_OT_timeit_template(utils.TextOperator):
         return {'FINISHED'}
 
 
-# XXX Not used
-# class TEXTENSION_OT_auto_sync(Operator):
-#     """Automatically syncs changes from source file"""
-#     bl_idname = "textension.auto_sync"
-#     bl_label = "Auto Sync"
-
-#     _sync_text = None
-
-#     def sync_text(self, text):
-#         if text.is_modified:
-#             bpy.ops.text.resolve_conflict(resolution='RELOAD')
-
-#     def execute(self, context):
-#         st = context.space_data
-#         cls = __class__
-
-#         sync_text = getattr(cls, "_sync_text", None)
-
-#         if sync_text:
-#             try:
-#                 st.draw_handler_remove(sync_text, 'WINDOW')
-#             except ValueError:
-#                 pass
-#             setattr(cls, "_sync_text", None)
-
-#         sync_text = st.draw_handler_add(
-#             self.sync_text, (st.text,), 'WINDOW', 'POST_PIXEL')
-#         setattr(cls, "_sync_text", sync_text)
-#         return {'FINISHED'}
-
-
 class TEXTENSION_OT_scroll(utils.TextOperator):
     """Smooth ish Scroll"""
     bl_idname = "textension.scroll"
@@ -1343,7 +1407,6 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
 
     @classmethod
     def register_keymaps(cls):
-        kmi_new = utils.kmi_new
         utils.kmi_args(cls, "Text", cls.bl_idname, 'PRESS')
 
         kmi_new('HOME', ctrl=1, note="Scroll to Top").type = 'TOP'
@@ -1374,7 +1437,7 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
               ('BOTTOM', "Bottom", "Scroll to bottom"),
               ('CURSOR', "To Cursor", "Scroll to cursor"),
               ('JUMP', "Jump", "Jump to line"),
-              ('NUDGE', "Nudge", "Nudge scroll by amount of lines"))
+              ('NUDGE', "Nudge", "Move the view without setting cursor"))
 
     type: bpy.props.EnumProperty(
         default='PAGEDN', items=_items, options={'SKIP_SAVE'})
@@ -1385,79 +1448,82 @@ class TEXTENSION_OT_scroll(utils.TextOperator):
     use_smooth: bpy.props.BoolProperty(default=True, options={'SKIP_SAVE'})
     select: bpy.props.BoolProperty(default=False, options={'SKIP_SAVE'})
 
-    from mathutils.geometry import interpolate_bezier as bezier
-    from mathutils import Vector
-
     def execute(self, context):
         tc = TextContext(context)
         st = context.space_data
-        idx_max = tc.lenl - 1
-        view_half = tc.vlines // 2
-        region = context.region
+        rw = context.region.width
+        # Make visible lines divisible by 2 so cursor centering is fixed.
+        viewl = tc.view_lines_safe // 2 * 2
+        view_half = viewl // 2
+
         top = st.top
+        sell = tc.sell
+        selc = tc.selc
         type = self.type
 
-        # Next cursor position.
-        sell_dest = min(idx_max, tc.sell + tc.vlines)
-
-        # Scroll destination (new st.top).
-        scroll_dest = tc.sell + view_half
-
-        def clamp_top(val):
-            return 0 if val < 0 else idx_max if val > idx_max else val
-
-        direction = 'DOWN'
         if type == 'NUDGE':
-            direction = 'DOWN' if self.lines > 0 else 'UP'
-            sell_dest = tc.sell
-            lines = st.top + self.lines * prefs.nudge_scroll_lines
-            scroll_dest = clamp_top(lines)
-        elif type == 'PAGEUP':
-            direction = 'UP'
-            sell_dest = clamp_top(tc.sell - tc.vlines)
-            scroll_dest = clamp_top(sell_dest - view_half)
-        elif type == 'TOP':
-            direction = 'UP'
-            sell_dest = scroll_dest = 0
-        elif type == 'BOTTOM':
-            direction = 'DOWN'
-            sell_dest = idx_max
-            scroll_dest = tc.lenl - view_half
-        elif type == 'CURSOR':
-            sell_dest = tc.sell
-            direction = 'DOWN' if sell_dest > tc.sell else 'UP'
-            scroll_dest = clamp_top(tc.sell - view_half)
-        elif type == 'JUMP':
-            sell_dest = self.jump
-            direction = 'DOWN' if sell_dest > tc.sell else 'UP'
-            scroll_dest = clamp_top(sell_dest - view_half)
+            return scroll(lines=prefs.nudge_scroll_lines,
+                          direction='DOWN' if self.lines > 0 else 'UP')
 
-        offset = offset_lines_get(st, region.width, end=max(0, sell_dest))
+        elif type in {'PAGEUP', 'PAGEDN'}:
+            offset = st.show_word_wrap
+            offl = offl_by_col(context, sell, selc)
+            numlines = -viewl + offl
+            top_offl = offl - view_half + offset
+
+            if type == 'PAGEDN':
+                offset *= -1
+                numlines = viewl + offl
+                top_offl = offl + viewl + view_half + offset
+
+            sell_dst, selc_dst = skip_lines(context, numlines, sell, selc)
+            off_top = offl_get(st, rw, end=sell) + top_offl
+            scroll_dst = clamp(off_top + sell - viewl)
+
+        elif type == 'TOP':
+            sell_dst = selc_dst = 0
+            scroll_dst = -100  # Hack to deal with rounding errors.
+
+        elif type == 'BOTTOM':
+            sell_dst = tc.lenl - 1
+            selc_dst = 0
+            scroll_dst = tc.scroll_max
+
+        elif type in {'CURSOR', 'JUMP'}:
+            sell_dst = sell
+            selc_dst = selc
+
+            if type == 'JUMP':
+                sell_dst = self.jump
+                selc_dst = 0
+
+            off_top = offl_get(st, rw, end=sell_dst)
+            scroll_dst = clamp(sell_dst + off_top - view_half)
+
+        # Set cursor.
+        if type in {'PAGEUP', 'PAGEDN', 'TOP', 'BOTTOM', 'JUMP'}:
+            tc.text.cursor_set(sell_dst, character=selc_dst,
+                               select=self.select)
 
         # Allow instant scrolling. Prefs setting?
         if not self.use_smooth:
-            st.top = scroll_dest
-            return {'FINISHED'}
+            st.top = scroll_dst
 
-        # Animate scroll when cursor is outside of view.
-        view_top = top - offset + 2
-        view_bottom = top - offset + tc.vlines - 2
-
-        if sell_dest not in range(view_top, view_bottom) or type == 'NUDGE':
-            bpy.ops.textension.scroll2(
-                'INVOKE_DEFAULT', lines=scroll_dest - top, direction=direction)
-
-        # Ensure cursor position on destination line.
-        if type not in {'CURSOR', 'NUDGE'}:
-            if type == 'TOP':
-                pos = 0
-            elif type == 'BOTTOM':
-                pos = len(tc.lines[-1].body)
-            elif type == 'JUMP':
-                pos = min(self.char, len(tc.lines[sell_dest].body))
+        else:
+            # If st.top is higher than destination, flip direction.
+            if scroll_dst > top:
+                direction = 'DOWN'
             else:
-                pos = min(len(tc.lines[sell_dest].body), tc.curc_sorted)
-            tc.text.cursor_set(sell_dest, character=pos, select=self.select)
+                direction = 'UP'
+
+            lines = abs(scroll_dst - top)
+            # Scroll when cursor is outside of view.
+            if top not in range(clamp(scroll_dst - view_half),
+                                clamp(scroll_dst + view_half)):
+
+                # TODO: Make lines argument relative and drop direction.
+                if lines:
+                    scroll(lines=lines, direction=direction)
 
         # Append new cursor position to history.
         if self.history:
@@ -1472,8 +1538,8 @@ class TEXTENSION_OT_find(utils.TextOperator):
     @classmethod
     def register_keymaps(cls):
         utils.kmi_args(cls, "Text", cls.bl_idname, 'PRESS', alt=1)
-        utils.kmi_new('F', note="Find Next").direction = 'NEXT'
-        utils.kmi_new('D', note="Find Previous").direction = 'PREV'
+        kmi_new('F', note="Find Next").direction = 'NEXT'
+        kmi_new('D', note="Find Previous").direction = 'PREV'
 
     case_sensitive: bpy.props.BoolProperty(default=False)
     direction: bpy.props.EnumProperty(
@@ -1524,9 +1590,10 @@ class TEXTENSION_OT_find(utils.TextOperator):
                 find = str.find
             ret = _find(lines, reverse=not reverse)
 
+        # Scroll to cursor.
         if ret is not None:
             st = context.space_data
-            if ret not in range(st.top, st.top + tc.vlines - 2):
+            if ret not in range(st.top, st.top + tc.view_lines - 2):
                 bpy.ops.textension.scroll(type='CURSOR')
             return {'FINISHED'}
         return {'CANCELLED'}
@@ -1547,7 +1614,9 @@ class TEXTENSION_PT_goto(bpy.types.Panel):
 
     def __init__(self):
         endl = bpy.context.edit_text.select_end_line_index
+        TEXTENSION_OT_goto.block = True
         TEXTENSION_OT_goto.kmi_prop().line = str(endl + 1)
+        TEXTENSION_OT_goto.block = False
 
 
 class TEXTENSION_OT_goto(utils.TextOperator):
@@ -1555,33 +1624,31 @@ class TEXTENSION_OT_goto(utils.TextOperator):
     bl_idname = "textension.goto"
     bl_label = "Go to Line"
 
-    @staticmethod
-    def kmi_prop():
-        return __class__._keymaps[0][1].properties
+    @classmethod
+    def kmi_prop(cls):
+        return cls._keymaps[0][1].properties
 
     def goto(self, context):
-        lenl = len(context.edit_text.lines)
-        line = max(1, min(lenl, int(__class__.kmi_prop().line)))
-        bpy.ops.textension.scroll(type='JUMP', jump=line - 1)
+        if not getattr(__class__, "block", False):
+            lenl = len(context.edit_text.lines)
+            line = clamp(min(lenl, int(__class__.kmi_prop().line)), 1) - 1
+            bpy.ops.textension.scroll(type='JUMP', jump=line)
 
     line: bpy.props.StringProperty(options={'HIDDEN'}, update=goto)
 
     def invoke(self, context, event):
-        mx, my = event.mouse_x, event.mouse_y
-        cursor_warp = context.window.cursor_warp
-
         # Create popup somewhat centered.
         center_x = context.area.x + (context.area.width // 2)
         center_y = context.area.y - 20 + (context.area.height // 2)
 
-        cursor_warp(center_x, center_y)
+        context.window.cursor_warp(center_x, center_y)
         bpy.ops.wm.call_panel(name="TEXTENSION_PT_goto", keep_open=False)
-        cursor_warp(mx, my)
+        context.window.cursor_warp(event.mouse_x, event.mouse_y)
         return {'CANCELLED'}
 
     @classmethod
     def register_keymaps(cls):
-        utils.kmi_new(cls, "Text Generic", cls.bl_idname, 'J', 'PRESS', ctrl=1)
+        kmi_new(cls, "Text Generic", cls.bl_idname, 'J', 'PRESS', ctrl=1)
 
 
 class TEXTENSION_OT_cursor_history(utils.TextOperator):
@@ -1592,10 +1659,8 @@ class TEXTENSION_OT_cursor_history(utils.TextOperator):
     @classmethod
     def register_keymaps(cls):
         utils.kmi_args(cls, "Text", cls.bl_idname, 'PRESS')
-        utils.kmi_new('BUTTON4MOUSE', note="Cursor History Back"
-                      ).dir = 'BACK'
-        utils.kmi_new('BUTTON5MOUSE', note="Cursor History Forward"
-                      ).dir = 'FORWARD'
+        kmi_new('BUTTON4MOUSE', note="Cursor History Back").dir = 'BACK'
+        kmi_new('BUTTON5MOUSE', note="Cursor History Forward").dir = 'FORWARD'
 
     _items = (("FORWARD", "Forward", ""), ("BACK", "Back", ""))
     dir: bpy.props.EnumProperty(items=_items)
@@ -1619,14 +1684,11 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
     def register_keymaps(cls):
         note = "Set Cursor"
         args = cls, "Text"
-        utils.kmi_new(*args, cls.bl_idname, 'LEFTMOUSE', 'PRESS', note=note)
+        kmi_new(*args, cls.bl_idname, 'LEFTMOUSE', 'PRESS', note=note)
         utils.kmi_mute(*args, idname="text.selection_set")
         utils.kmi_mute(*args, idname="text.cursor_set")
         utils.kmi_mute(*args, type='LEFTMOUSE', value='DOUBLE_CLICK')
 
-    _clicks = 0
-    _mxy = -1, -1
-    _click_time = -1
     _ignore = {'TIMER', 'TIMER_REPORT'}
     _allow = {'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'INBETWEEN_MOUSEMOVE',
               'MOUSEMOVE', 'NONE', 'EVT_TWEAK_L', *_ignore, 'LEFTMOUSE'}
@@ -1657,7 +1719,7 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
         # End.
         if event.value == 'RELEASE' or event.type not in self._allow:
             if event.type not in {'EVT_TWEAK_L'}:
-                __class__.active = False
+                self.active(False)
                 cursor_history_add(context)
                 return {'FINISHED'}
 
@@ -1678,45 +1740,31 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
             tc.selc = -1
         return {'FINISHED'}
 
-    @utils.classproperty
     @classmethod
-    def active(cls):
-        return setdefault(cls, "_active", False)
+    def active(cls, state=None):
+        if state is None:
+            return setdefault(cls, "_active", False)
+        cls._active = state
 
-    @active.setter
     @classmethod
-    def active(cls, value):
-        cls._active = value
+    def mxy(cls, val=None):
+        if val is None:
+            return setdefault(cls, "_mxy", (-1, -1))
+        cls._mxy = val
 
-    @utils.classproperty
     @classmethod
-    def mxy(cls):
-        return cls._mxy
+    def clicks(cls, val=None, iadd=None):
+        if iadd is not None:
+            return iadd_default(cls, "_clicks", 0, iadd)
+        elif val is None:
+            return setdefault(cls, "_clicks", 0)
+        cls._clicks = val
 
-    @mxy.setter
     @classmethod
-    def mxy(cls, value):
-        cls._mxy = value
-
-    @utils.classproperty
-    @classmethod
-    def clicks(cls):
-        return cls._clicks
-
-    @clicks.setter
-    @classmethod
-    def clicks(cls, value):
-        cls._clicks = value
-
-    @utils.classproperty
-    @classmethod
-    def click_time(cls):
-        return cls._click_time
-
-    @click_time.setter
-    @classmethod
-    def click_time(cls, value):
-        cls._click_time = value
+    def click_time(cls, val=None):
+        if val is None:
+            return setdefault(cls, "_click_time", -1)
+        cls._click_time = val
 
     def isclose_vec2(self, vec2a, vec2b, tol=3):
         x1, y1 = vec2a
@@ -1728,24 +1776,24 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
     def count_clicks(self, event):
         mxy = event.mouse_region_x, event.mouse_region_y
         # Allow an error margin of 3 pixels.
-        if not self.isclose_vec2(self.mxy, mxy):
-            self.mxy = mxy
-            self.clicks = 1
+        if not self.isclose_vec2(self.mxy(), mxy):
+            self.mxy(mxy)
+            self.clicks(1)
             return 1
-        if self.clicks == 1:
-            self.mxy = mxy
-        if mxy == self.mxy:
-            if perf_counter() < self.click_time + 0.7:
-                if self.clicks > 2:
-                    self.clicks = 0
+        if self.clicks() == 1:
+            self.mxy(mxy)
+        if mxy == self.mxy():
+            if monotonic() < self.click_time() + 0.7:
+                if self.clicks() > 2:
+                    self.clicks(0)
                     return 3
-                self.clicks += 1
-                return self.clicks
+                self.clicks(iadd=1)
+                return self.clicks()
 
-        self.clicks = 1
-        self.mxy = mxy
-        self.click_time = perf_counter()
-        return self.clicks
+        self.clicks(1)
+        self.mxy(mxy)
+        self.click_time(monotonic())
+        return self.clicks()
 
     def invoke(self, context, event):
         region = context.region
@@ -1753,12 +1801,14 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
         if in_scroll(event, region):
             return {'PASS_THROUGH'}
 
+        cursor_history_add(context)
         st = context.space_data
         rh = region.height
         x2 = lnum_margin_width_get(st)
         clicks = self.count_clicks(event)
+
         if clicks == 1:
-            self.click_time = perf_counter()
+            self.click_time(monotonic())
 
         # Don't count towards clicks if cursor in line number margin.
         in_marg = st.show_line_numbers and cursor_isect_xy(event, 0, x2, 0, rh)
@@ -1768,14 +1818,14 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
             if clicks == 2:
                 return bpy.ops.textension.drag_select('INVOKE_DEFAULT')
             if clicks == 3:
-                self.clicks = 0
+                self.clicks(0)
                 if prefs.triple_click == 'LINE':
                     return self.select_line(context)
                 return bpy.ops.textension.expand_to_path()
 
         self.line_select = do_line_sel
-        self.click_time = perf_counter()
-        self.active = True
+        self.click_time(monotonic())
+        self.active(True)
         lh = int(1.3 * (int(utils.wunits_get() * st.font_size) // 20))
         text = st.text
         rw = region.width
@@ -1794,7 +1844,7 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
             val = min(5, max(-5, val))
             if val > 0 and st.top < _max or val < 0 and st.top > 0:
                 st.top += val
-                st.top = min(_max, max(0, st.top))
+                st.top = min(_max, clamp(st.top))
 
         # Determine if cursor is near region top/bottom.
         def cursor_edge(event=event):
@@ -1826,7 +1876,7 @@ class TEXTENSION_OT_cursor(utils.TextOperator):
         self.scroll_max = (len(text.lines) - st.visible_lines // 2)
         self.scroll_lines = prefs.wheel_scroll_lines
         if st.show_word_wrap:
-            self.scroll_max += offset_lines_get(st, rw)
+            self.scroll_max += offl_get(st, rw)
 
         context.window_manager.modal_handler_add(self)
         cursor_set(event, select=False, line_select=self.line_select)
@@ -1841,14 +1891,13 @@ class TEXTENSION_OT_select_all(utils.TextOperator):
 
     @classmethod
     def register_keymaps(cls):
-        utils.kmi_new(cls, "Text", cls.bl_idname, 'A', 'PRESS', ctrl=1)
+        kmi_new(cls, "Text", cls.bl_idname, 'A', 'PRESS', ctrl=1)
 
     def execute(self, context):
         context.space_data.text.select_set(0, 0, -1, -1)
         return {'CANCELLED'}
 
 
-# TODO: Needs fixing.
 class TEXTENSION_OT_toggle_header(utils.TextOperator):
     bl_idname = "textension.toggle_header"
     bl_label = "Toggle Header"
@@ -1856,8 +1905,8 @@ class TEXTENSION_OT_toggle_header(utils.TextOperator):
     @classmethod
     def register_keymaps(cls):
         utils.kmi_args(cls, "Text Generic", cls.bl_idname, "PRESS")
-        utils.kmi_new('LEFT_ALT')
-        utils.kmi_new('RIGHT_ALT')
+        kmi_new('LEFT_ALT')
+        kmi_new('RIGHT_ALT')
 
     @classmethod
     def poll(cls, context):
@@ -1899,14 +1948,14 @@ class TEXTENSION_OT_line_select(utils.TextOperator):
     @classmethod
     def register_keymaps(cls):
         args = cls, "Text", cls.bl_idname
-        utils.kmi_new(*args, 'MOUSEMOVE', 'ANY', note="HIDDEN")
+        kmi_new(*args, 'MOUSEMOVE', 'ANY', note="HIDDEN")
 
     @classmethod
     def poll(cls, context):
         try:
             st = context.space_data
             return st.text and st.show_line_numbers and \
-                not TEXTENSION_OT_cursor.active
+                not TEXTENSION_OT_cursor.active()
         except AttributeError:
             pass
 
@@ -1992,7 +2041,7 @@ class TEXTENSION_OT_scroll_continuous(utils.TextOperator):
 
     @classmethod
     def register_keymaps(cls):
-        utils.kmi_new(cls, "Text", cls.bl_idname, 'MIDDLEMOUSE', 'PRESS')
+        kmi_new(cls, "Text", cls.bl_idname, 'MIDDLEMOUSE', 'PRESS')
 
     def invoke(self, context, event):
         region = context.region
@@ -2000,9 +2049,9 @@ class TEXTENSION_OT_scroll_continuous(utils.TextOperator):
             return {'PASS_THROUGH'}
         my = event.mouse_region_y
         wm = context.window_manager
-        scroll_max = scroll_max_get(context.space_data, region.width)
+        tc = TextContext(context)
         timer = wm.event_timer_add(1e-5, window=context.window)
-        rt = STRuntime(context, scroll_max)
+        rt = STRuntime(context, tc.scroll_max)
 
         # Frame pacing.
         t_step = 1 / 200
@@ -2057,8 +2106,8 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
     @classmethod
     def register_keymaps(cls):
         utils.kmi_args(cls, "Text", cls.bl_idname, 'PRESS')
-        utils.kmi_new('WHEELDOWNMOUSE', note="Scroll Up").direction = 'DOWN'
-        utils.kmi_new('WHEELUPMOUSE', note="Scroll Down").direction = 'UP'
+        kmi_new('WHEELDOWNMOUSE', note="Mouse Scroll Up").direction = 'DOWN'
+        kmi_new('WHEELUPMOUSE', note="Mouse Scroll Down").direction = 'UP'
 
     _timer = None
     direction: bpy.props.EnumProperty(
@@ -2092,18 +2141,18 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
         up = self.direction == 'UP'
         # Scroll by external call.
         if self.lines != 0:
-            lines = self.lines
-            frames = min(45, max(24, int(abs(lines) / 4)))
+            lines = self.lines * (-1 if up else 1)
+            frames = min(35, max(24, int(abs(lines) / 4)))
         # Mouse wheel scroll.
         else:
             lines = prefs.wheel_scroll_lines * (-1 if up else 1)
             frames = max(6, int(75 / prefs.scroll_speed) - self.jobs)
 
+        tc = TextContext(context)
         region = context.region
-        scroll_max = scroll_max_get(context.space_data, region.width)
         finished = False
         redraw = region.tag_redraw
-        rt = STRuntime(context, scroll_max)
+        rt = STRuntime(context, tc.scroll_max)
         lh = rt.lheight
 
         # Interpolate a smooth scroll curve. v is a value between 0 and 1.
@@ -2167,7 +2216,6 @@ class TEXTENSION_OT_scroll2(utils.TextOperator):
         wm.modal_handler_add(self)
         if not self.jobs:
             # Single timer for all ops that ends with the last job.
-            # handle = wm.event_timer_add(1/240, window=context.window)
             __class__._timer = wm.event_timer_add(1e-5, window=context.window)
         self.set_job(context, True)
         return {'RUNNING_MODAL'}
