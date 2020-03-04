@@ -826,6 +826,10 @@ class TEXTENSION_OT_insert_internal(utils.TextOperator):
         return c_in not in {quote_doub, quote_sing}
 
     def invoke(self, context, event):
+        # Allow pressing number keys to jump to line.
+        if TEXTENSION_OT_line_select.in_margin():
+            return {'PASS_THROUGH'}
+
         unicode = event.unicode
         # TEXT_INPUT may trigger on non-printable keys on some keyboards.
         # Escape these by passing them through the operator.
