@@ -639,11 +639,10 @@ class HighlightOccurrencesPrefs(bpy.types.PropertyGroup):
 
 def draw_hlite_prefs(_, self, context, layout):
     row = layout.row()
-    row.alignment = 'CENTER'
-    row.column().label()
     col = row.column(align=True)
     row = col.row(align=True)
-    row.alignment = 'LEFT'
+    row.alignment = 'CENTER'
+    col.scale_x = 1
 
     color_text = "color_text" if self.use_overlay else ""
     colors = ("color_background", color_text, "color_line", "color_line",
@@ -654,28 +653,28 @@ def draw_hlite_prefs(_, self, context, layout):
     for prop in 'CUSTOM', 'BLUE', 'RED', 'YELLOW', 'GREEN':
         row.prop_enum(self, "color_preset", value=prop)
 
-    row = layout.row()
+    col.separator(factor=2)
+    row = col.row()
     row.alignment = 'CENTER'
 
     col = row.column()
     for prop in ("case_sensitive", "min_str_len", "frame_thickness",
                  "line_thickness", ""):
         col.prop(self, prop) if prop else col.separator()
-
     col = row.column()
+    col.scale_x = 1.08
     for prop in display:
         col.prop(self, prop) if prop else col.label()
 
-    col = row.column()
     if self.color_preset == 'CUSTOM':
+        col.scale_x = 0.7
+        col = row.column()
+        col.scale_x = 0.6
         for prop, color in zip(display, colors):
             if color and getattr(self, prop):
                 col.prop(self, color, text="")
             else:
                 col.label()
-    else:
-        col.column().label()
-    layout.separator()
 
 
 def draw_highlight_occurrences_menu(self, context):
