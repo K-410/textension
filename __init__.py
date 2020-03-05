@@ -141,22 +141,24 @@ def lnum_digits_get(text) -> int:
 
 # Slightly faster version, but needs left pad. Assumes margin visible.
 def cwidth_get_ex(pad, st):
-    return int(pad / (lnum_digits_get(st.text) + 3))
+    return max(1, int(pad / (lnum_digits_get(st.text) + 3)))
 
 
 # Get character width (px) of current text editor.
 def cwidth_get(st) -> int:
     if st.show_word_wrap:
-        return int(left_pad_get(st) / (lnum_digits_get(st.text) + 3))
+        cwidth = int(left_pad_get(st) / (lnum_digits_get(st.text) + 3))
 
-    loc = st.region_location_from_cursor
-    for idx, line in enumerate(st.text.lines):
-        if line.body:
-            return loc(idx, 1)[0] - loc(idx, 0)[0]
     else:
-        from blf import size, dimensions
-        size(1, st.font_size, 72)
-        return round(dimensions(1, "W")[0] * (utils.wunits_get() * 0.05))
+        loc = st.region_location_from_cursor
+        for idx, line in enumerate(st.text.lines):
+            if line.body:
+                cwidth = loc(idx, 1)[0] - loc(idx, 0)[0]
+        else:
+            from blf import size, dimensions
+            size(1, st.font_size, 72)
+            cwidth = round(dimensions(1, "W")[0] * (utils.wunits_get() * 0.05))
+    return max(1, cwidth)
 
 
 # Get wrap offset (in lines) between 'start' and 'end'.
