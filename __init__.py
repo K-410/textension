@@ -41,6 +41,13 @@ def cursor_history_add(context, *args, **kwargs):
     textman(context.edit_text).cursor.add(*args, **kwargs)
 
 
+def cursor_history_poll(context, forward=False):
+    cursor = textman(context.edit_text).cursor
+    if forward:
+        return cursor.head
+    return len(cursor.history) - 1 > cursor.head
+
+
 def cursor_history_step(context, direction):
     tm = textman(context.edit_text)
     if direction == 'FORWARD':
@@ -114,13 +121,36 @@ def copy_string(context, cut=False):
     context.window_manager.clipboard = tc.sel_string
 
 
-def set_text_context_menu(state):
-    funcs = bpy.types.TEXT_MT_context_menu._dyn_ui_initialize()
-    if state:
-        return funcs.insert(0, lambda s, c: s.layout.operator("text.new"))
+def nav_menu_extend(self, context):
+    layout = self.layout
+    op = layout.operator
+    layout.separator()
+    op("textension.scroll", text="Page Up").type = 'PAGEUP'
+    op("textension.scroll", text="Page Down").type = 'PAGEDN'
+    layout.separator()
+    op("textension.goto", text="Go To Line..")
+    layout.separator()
+    row = layout.row()
+    row.operator(
+        "textension.cursor_history", text="Next Cursor").dir = 'FORWARD'
+    row.active = cursor_history_poll(context, forward=True)
+    row = layout.row()
+    row.operator(
+        "textension.cursor_history", text="Previous Cursor").dir = 'BACK'
+    row.active = cursor_history_poll(context)
 
-    next((funcs.__delitem__(funcs.index(f))
-         for f in funcs if f.__module__ == __name__), 0)
+
+def set_text_context_menu(state):
+    rmb_menu = bpy.types.TEXT_MT_context_menu._dyn_ui_initialize()
+    nav_menu = bpy.types.TEXT_MT_view_navigation._dyn_ui_initialize()
+    if state:
+        nav_menu.append(nav_menu_extend)
+        rmb_menu.insert(0, lambda s, c: s.layout.operator("text.new"))
+        return
+
+    next((rmb_menu.__delitem__(rmb_menu.index(f))
+         for f in rmb_menu if f.__module__ == __name__), 0)
+    nav_menu.remove(nav_menu_extend)
 
 
 # Get the offset (px) from line number margin.
