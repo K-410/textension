@@ -117,18 +117,37 @@ class classproperty(property):
 # Run by register() in __init__.py to check if keymaps are ready. When they
 # are, this function will call register on its own.
 def keymaps_ensure(register, keymaps):
-    km = bpy.context.window_manager.keyconfigs.active.keymaps
+    active = getattr(keymaps_ensure, "active", None)
+    if active is None:
+        active = bpy.context.window_manager.keyconfigs.active
+    km = active.keymaps
+    # All keymaps found, register addon.
     if all(km_name in km for km_name in keymaps):
         return register(ready=True)
 
-    elif setdefault(keymaps_ensure, "retries", 10) > 0:
+    # If not ready, defer registration up to 30 times or roughly 6 seconds.
+    elif setdefault(keymaps_ensure, "retries", 30) > 0:
         keymaps_ensure.retries -= 1
         return defer_call(0.2, register)
 
+    # If that fails, try default keyconfig as fallback.
+    elif getattr(keymaps_ensure, "active", None) is None:
+        kc = bpy.context.window_manager.keyconfigs
+        keymaps_ensure.active = kc.default
+        keymaps_ensure.retries = 30
+        return defer_call(0.2, register)
+
+    # When all else fails, print the active keymap and what keymaps exist.
     else:
+        print("Textension: Failed in finding default keymaps")
+        for km_name in keymaps:
+            if km_name not in km:
+                print("Keymap %s missing in %s." % (km_name, kc.active.name))
+        print("Keymaps found:")
+        print(km.keys())
         # Could happen if blender's keymaps were somehow missing.
-        raise Exception("Default keymaps are corrupt. Restore Blender to "
-                        "factory defaults before enabling this addon")
+        # raise Exception("Default keymaps are corrupt. Restore Blender to "
+        #                 "factory defaults before enabling this addon")
 
 
 def wunits_get():
@@ -185,8 +204,12 @@ def kmi_new(*args, **kwargs):
 
     kmi_args.args = cls, kmname, idname, value
 
+    # If fallback exists, use it instead of active.
     kc = bpy.context.window_manager.keyconfigs
-    active = kc.active.keymaps.get(kmname)
+    if hasattr(keymaps_ensure, "kc"):
+        active = kc
+    else:
+        active = kc.active.keymaps.get(kmname)
     if not active:
         raise KeyError(f"{kmname} not in active keyconfig")
 
