@@ -10,7 +10,7 @@ bl_info = {
     "name": "Textension",
     "description": "Convenience operators for text editor",
     "author": "kaio",
-    "version": (1, 0, 0),
+    "version": (1, 0, 1),
     "blender": (2, 82, 0),
     "location": "Text Editor",
     "category": "Text Editor"
