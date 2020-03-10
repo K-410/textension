@@ -100,6 +100,7 @@ def selection_as_string(text) -> str:
 
 def copy_string(context, cut=False):
     tc = TextContext(context)
+    cursor = tc.cursor
     curl = tc.curl_sorted
     curc = tc.curc
     buffer = Buffer.get()
@@ -117,6 +118,8 @@ def copy_string(context, cut=False):
     buffer.string_set(tc.sel_string_ex)
     if not tc.has_sel and not cut:
         tc.cursor = curl, curc
+    elif not cut:
+        tc.cursor = cursor
     # TODO use bpy.ops.text.copy?
     context.window_manager.clipboard = tc.sel_string
 
@@ -176,19 +179,13 @@ def cwidth_get_ex(pad, st):
 
 # Get character width (px) of current text editor.
 def cwidth_get(st) -> int:
-    if st.show_word_wrap:
-        cwidth = int(left_pad_get(st) / (lnum_digits_get(st.text) + 3))
-
-    else:
-        loc = st.region_location_from_cursor
-        for idx, line in enumerate(st.text.lines):
-            if line.body:
-                cwidth = loc(idx, 1)[0] - loc(idx, 0)[0]
-        else:
-            from blf import size, dimensions
-            size(1, st.font_size, 72)
-            cwidth = round(dimensions(1, "W")[0] * (utils.wunits_get() * 0.05))
-    return max(1, cwidth)
+    if st.show_word_wrap and st.show_line_numbers:
+        return int(left_pad_get(st) / (lnum_digits_get(st.text) + 3))
+    loc = st.region_location_from_cursor
+    for idx, line in enumerate(st.text.lines):
+        if line.body:
+            return loc(idx, 1)[0] - loc(idx, 0)[0]
+    return max(1, TextContext(st=st).cwidth)
 
 
 # Get wrap offset (in lines) between 'start' and 'end'.
@@ -428,18 +425,8 @@ class Buffer:
 # A convenience class for getting/setting runtime data. Each context is only
 # valid for the lifetime of an operator.
 class TextContext:
-    def init_cursor(self):
-        self._curl, self._curc, self._sell, self._selc = cursor_get(self.text)
-
     @property
     def curl(self) -> int:
-        if self._curl is None:
-            self.init_cursor()
-        return self._curl
-
-    # Return updated current line index.
-    @property
-    def curl_ext(self) -> int:
         return self.text.current_line_index
 
     @curl.setter
@@ -453,9 +440,7 @@ class TextContext:
 
     @property
     def curc(self) -> int:
-        if self._curc is None:
-            self.init_cursor()
-        return self._curc
+        return self.text.current_character
 
     @curc.setter
     def curc(self, val: int):
@@ -470,9 +455,7 @@ class TextContext:
 
     @property
     def sell(self) -> int:
-        if self._sell is None:
-            self.init_cursor()
-        return self._sell
+        return self.text.select_end_line_index
 
     @sell.setter
     def sell(self, val: int):
@@ -485,9 +468,7 @@ class TextContext:
 
     @property
     def selc(self) -> int:
-        if self._selc is None:
-            self.init_cursor()
-        return self._selc
+        return self.text.select_end_character
 
     @selc.setter
     def selc(self, val: int):
@@ -496,7 +477,6 @@ class TextContext:
 
     @property
     def selc_sorted(self) -> int:
-        return
         if self.reverse:
             return self.curc
         return self.selc
@@ -538,9 +518,9 @@ class TextContext:
 
     @property
     def sel_string(self):
-        if self._sel_string is None:
-            self._sel_string = selection_as_string(self.text)
-        return self._sel_string
+        if hasattr(self, "_sel_string"):
+            return self._sel_string
+        return setdefault(self, "_sel_string", selection_as_string(self.text))
 
     # Return updated selection as string.
     @property
@@ -565,6 +545,10 @@ class TextContext:
             if indent:
                 return indent % tab_width and tab_width or indent
         return tab_width
+
+    @property
+    def cwidth(self):
+        return self.rt.runtime.cwidth_px
 
     # Return line height in pixels.
     @property
@@ -617,16 +601,21 @@ class TextContext:
     def view_lines(self):
         return self.st.visible_lines
 
-    # TODO Lazy load some attributes eg. text selection.
-    def __init__(self, context):
-        self.st = st = context.space_data
-        self.text = text = st.text
-        self.select_set = text.select_set
-        self._curl = self._curc = \
-            self._sell = self._selc = None
-        self._sel_string = None
+    @property
+    def text(self):
+        return self.st.text
 
-    def __new__(cls, context, *args, **kwargs):
+    def select_set(self, *args, **kwargs):
+        self.text.select_set(*args, **kwargs)
+
+    def __init__(self, context=None, st=None):
+        if context is not None:
+            st = context.space_data
+        self.st = st
+
+    def __new__(cls, context=None, st=None, *args, **kwargs):
+        if context is None:
+            context = bpy.context
         if not getattr(context, "edit_text"):
             return False
         return super(TextContext, cls).__new__(cls, *args, **kwargs)
@@ -701,7 +690,7 @@ class TEXTENSION_OT_cut_internal(utils.TextOperator):
         else:
             if getattr(cls, "_cursor", None) is not None:
                 # Move cursor to the end of previous line.
-                if tc.curl_ext == tc.lenl - 1:
+                if tc.curl == tc.lenl - 1:
                     if not getattr(cls, "_has_selection", False):
                         tc.cursor = tc.curl, len(tc.endl_body)
         return {'FINISHED'}
@@ -1125,7 +1114,7 @@ class TEXTENSION_OT_line_break_internal(utils.TextOperator):
 
         # Strip trailing whitespace.
         def strip():
-            line = tc.lines[tc.curl_ext - 1]
+            line = tc.lines[tc.curl - 1]
             if not line.body.strip():
                 line.body = ""
 
