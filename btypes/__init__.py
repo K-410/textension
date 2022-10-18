@@ -6,31 +6,15 @@ from ctypes import c_int, c_uint, c_short, c_bool, c_char, \
 
 
 class StructBase(Structure):
-    _structs = []
     """For Blender structs.
 
-    - Field members must be defined by annotation.
-    - Self-referencing pointers must be wrapped in lambdas.
-    - References to yet undefined classes must be wrapped in lambdas.
-
-    Adhering to the above points allows us to put all member definitions
-    within the class body, without needing a separate definition for the
-    _fields_ attribute as is conventionally required. The only caveat is
-    that after all classes have been defined _init_structs() must be called
-    as this sets up the _fields_ attribute for all defined StructBase classes.
-
-    Example:
-
-    class A(StructBase):
-        value: c_int
-
-    class B(StructBase):
-        a:          lambda: A
-        a_ptr:      POINTER(A)
-        b_ptr:      lambda: POINTER(B)
+    1. Fields are defined using annotation
+    2. Fields that refer to the containing struct must be wrapped in lambda.
+    3. Fields not yet defined must be wrapped in lambda.
+    4. _init_structs must be called before StructBase instances can be used.
     """
-
     __annotations__ = {}
+    _structs = []
 
     def __init_subclass__(cls):
         cls._structs.append(cls)
@@ -47,13 +31,11 @@ class StructBase(Structure):
             return cls.from_address(srna.as_pointer())
         except AttributeError:
             raise Exception("Not a StructRNA instance")
-
-    # Required
-    def __init__(self, *_): pass
+    
+    def __init__(self, *_): pass  # Required
 
 
 class ListBase(Structure):
-    _cache = {}
     """Generic (void pointer) ListBase used throughout Blender.
     
     ListBase stores the first/last pointers of a linked list.
@@ -61,9 +43,8 @@ class ListBase(Structure):
     A Typed ListBase class is created using syntax:
         ListBase(c_type)  # Returns a new class, not an instance
     """
-
-    _fields_ = (("first", c_void_p),
-                ("last",  c_void_p))
+    _fields_ = (("first", c_void_p), ("last",  c_void_p))
+    _cache = {}
 
     def __new__(cls, c_type=None):
         if c_type in cls._cache:
@@ -82,7 +63,6 @@ class ListBase(Structure):
                 __getitem__ = cls.__getitem__
         return cls._cache.setdefault(c_type, ListBase)
 
-    # Make it possible to loop over ListBase links.
     def __iter__(self):
         links_p = []
         # Some only have "last" member assigned, use it as a fallback.
@@ -100,13 +80,9 @@ class ListBase(Structure):
             yield elem_n.contents
             elem_n = elem_n.contents.next
 
-    # Make it possible to use subscript, for testing.
-    def __getitem__(self, index):
-        return list(self)[index]
+    def __getitem__(self, i): return list(self)[i]
 
-    def __bool__(self):
-        return bool(self.first or self.last)
-
+    def __bool__(self): return bool(self.first or self.last)
 
 
 class vec2Base(StructBase):
