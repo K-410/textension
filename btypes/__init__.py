@@ -110,16 +110,13 @@ class ListBase(Structure):
 
 
 class vec2Base(StructBase):
-    """Base class for vec2 types"""
+    """Base for Blender's vec2 short/int/float types"""
+    def __getitem__(self, i):
+        return getattr(self, ("x", "y")[i])
 
-    # Allow subscription of vec2 instances
-    def __getitem__(self, index, getattr=getattr):
-        return getattr(self, ("x", "y")[index])
+    def __setitem__(self, i, val):
+        setattr(self, ("x", "y")[i], val)
 
-    def __setitem__(self, index, value, *, setattr=setattr):
-        setattr(self, ("x", "y")[index], value)
-
-    # Allow looping over vec2 instances
     def __iter__(self):
         return iter((self.x, self.y))
 
@@ -140,50 +137,15 @@ class vec2f(vec2Base):
 
 
 class rectBase(StructBase):
-    """Base class for rect types"""
-
-    @property
-    def pos(self) -> tuple[int, int]:
+    """Base for Blender's rct int/float types"""
+    def get_position(self):
         return self.xmin, self.ymin
-    @pos.setter
-    def pos(self, new_pos: tuple[int, int]):
-        size = self.size
-        self.xmin, self.ymin = new_pos
-        self.size = size
 
-    @property
-    def width(self) -> int:
-        return self.xmax - self.xmin
-    @width.setter
-    def width(self, value: int):
-        self.xmax = self.xmin + value
-
-    @property
-    def height(self) -> int:
-        return self.ymax - self.ymin
-    @height.setter
-    def height(self, value: int):
-        self.ymax = self.ymin + value
-
-    @property
-    def size(self) -> tuple[int, int]:
-        return self.xmax - self.xmin, self.ymax - self.ymin
-    @size.setter
-    def size(self, new_size: tuple[int, int]):
-        width, height = new_size
-        self.xmax = self.xmin + width
-        self.ymax = self.ymin + height
-
-    # Allow subscription of rect instances
-    def __getitem__(self, index, *, getattr=getattr):
-        return getattr(self, ("xmin", "xmax", "ymin", "ymax")[index])
-
-    def __setitem__(self, index, value, *, setattr=setattr):
-        setattr(self, ("xmin", "xmax", "ymin", "ymax")[index], value)
-
-    # Allow looping over rect instances
-    def __iter__(self):
-        return iter((self.xmin, self.xmax, self.ymin, self.ymax))
+    def set_position(self, x, y):
+        self.xmax -= self.xmin - x
+        self.ymax -= self.ymin - y
+        self.xmin = x
+        self.ymin = y
 
 
 # source\blender\makesdna\DNA_vec_types.h

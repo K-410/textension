@@ -588,8 +588,8 @@ class TEXTENSION_OT_tab_context_menu(types.TextOperator):
         rct = block.handle.contents.region.contents.winrct
 
         margin = context.preferences.system.dpi_fac * 12  # UI_POPUP_MARGIN
-        width = rct.width
-        height = rct.height
+        width = rct.xmax - rct.xmin
+        height = rct.ymax - rct.ymin
 
         # Menu flip logic, like normal software.
         if mx + width - (margin * 2) <= context.window.width:
@@ -602,7 +602,7 @@ class TEXTENSION_OT_tab_context_menu(types.TextOperator):
         else:
             y1 = int(my - margin)
 
-        rct.pos = x1, y1
+        rct.set_position(x1, y1)
 
         # Moving the mouse should close the menu?
         # block.flag &= ~UI_BLOCK_MOVEMOUSE_QUIT
