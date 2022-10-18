@@ -1,290 +1,183 @@
 import bpy
+from . import types
+from .types import UnifiedDraw, logger as log, TextUndo, Callable
 import ctypes
-
-kmi_fields = ("type", "value", "alt", "ctrl", "shift",
-              "any", "key_modifier", "oskey", "active")
-
-
-def bpy_version_check():
-    if bpy.app.version[1] < 82:
-        raise Exception("\nMinimum Blender version 2.82 required\n")
+from bpy.types import PropertyGroup
+from bpy.props import CollectionProperty, BoolProperty, StringProperty,\
+    IntProperty, EnumProperty, FloatProperty
+import sys
+from io import StringIO
 
 
-def _prefs():
-    addons = bpy.context.preferences.addons
-    _prefs = addons[__package__].preferences
+# The real context
+from _bpy import (context as _context,
+                  data as _data)
 
-    def get_prefs():
-        nonlocal _prefs
-        if _prefs is None:
-            _prefs = addons[__package__].preferences
-        return _prefs
-
-    return get_prefs
+# RNA subscription owner
+SUBSCRIBE_OWNER = hash(__package__)
+system = _context.preferences.system
+log = log()
 
 
-# Quick and safe way of storing kmi data as literals
+class Flag:
+    _init_state = False
+    _state = False
+    _is_set = False
+
+    def __init__(self, init_state=False):
+        self._init_state = self._state = init_state
+
+    def set(self):
+        assert not self._is_set, "Flag already set"
+        self._state = not self._init_state
+        self._is_set = True
+
+    def reset(self):
+        self._state = self._init_state
+        self._is_set = False
+
+    def __bool__(self):
+        return self._is_set
+
+def get_caller_module(level):
+    """
+    Return the module this function was called from.
+    """
+    return sys.modules.get(sys._getframe(level).f_globals["__name__"])
+
+def this_module():
+    """
+    Returns the module of the caller.
+    """
+    return sys.modules.get(sys._getframe(1).f_globals["__name__"])
+
+
+_rna_hooks: dict[tuple, list[tuple[Callable, tuple]]] = {}
+def on_rna_changed(key):
+    assert key in _rna_hooks
+    for func, args in _rna_hooks[key]:
+        func(*args)
+
+def watch_rna(key, notify: Callable, args=()):
+    if not (hooks := _rna_hooks.setdefault(key, [])):
+        bpy.msgbus.subscribe_rna(key=key, owner=key, args=(key,), notify=on_rna_changed)
+    hooks.append((notify, args))
+
+
+def unwatch_rna(notify: Callable):
+    """Remove a callback from rna watch.
+    """
+    for key, hooks in list(_rna_hooks.items()):
+        for func, args in hooks:
+            if func == notify:
+                hooks.remove((func, args))
+                break
+        if not hooks:
+            bpy.msgbus.clear_by_owner(key)
+            del _rna_hooks[key]
+
+
+
+def register_class(cls):
+    bpy.utils.register_class(cls)
+    log("REG", cls.__name__)
+
+
+def unregister_class(cls):
+    bpy.utils.unregister_class(cls)
+    log("UNREG", cls.__name__)
+
+
+def register_class_iter(classes):
+    for cls_ in classes:
+        register_class(cls_)
+
+
+def unregister_class_iter(classes):
+    for cls_ in classes:
+        unregister_class(cls_)
+
+
+def clamp(val, a, b):
+    if val < a:
+        return a
+    elif val > b:
+        return b
+    return val
+
+
+def clamp_factory(lower, upper):
+    def inner(val, a=lower, b=upper):
+        if val < a:
+            return a
+        elif val > b:
+            return b
+        return val
+    return inner
+
+
+# Linear value to srgb. Assumes a 0-1 range.
+def lin2srgb(lin):
+    if lin > 0.0031308:
+        return 1.055 * (lin ** (1.0 / 2.4)) - 0.055
+    return 12.92 * lin
+
+
+def get_scrollbar_x_points(region_width):
+    """
+    Given a region width in pixels, return the x1 and x2 points
+    of the scrollbar.
+    """
+    widget_unit = system.wu
+    sx_2 = int(region_width - 0.2 * widget_unit)
+    sx_1 = sx_2 - int(0.4 * widget_unit) + 2
+    return sx_1, sx_2
+
+
+def renum(iterable, len=len, zip=zip, range=range, reversed=reversed):
+    """
+    Reversed enumerator starting at the size of the iterable and decreasing.
+    """
+    lenit = len(iterable)
+    start = lenit - 1
+    return zip(range(start, start - lenit, -1), reversed(iterable))
+
+
+# Default argument is bound when TextensionPreferences is registered.
+def prefs(preferences=None):
+    return preferences
+
+
+def to_bpy_float(value):
+    return ctypes.c_float(value).value
+
+
 def serialize_factory():
+    """Store kmi data as string."""
     from json import dumps, loads
     from operator import attrgetter
-    getattrs = attrgetter(*kmi_fields)
+    getattrs = attrgetter("type", "value", "alt", "ctrl", "shift",
+                          "any", "key_modifier", "oskey", "active")
 
-    def to_string(kmi):
-        return dumps(getattrs(kmi))
-
-    def from_str(string):
-        return tuple(loads(string))
-    return to_string, from_str
+    return (lambda kmi: dumps(getattrs(kmi)),
+            lambda string: tuple(loads(string)))
 
 
-to_string, from_str = serialize_factory()
-
-
-class Mixin:
-    @classmethod
-    def poll(cls, context):
-        return getattr(context, "edit_text", False)
-
-    # Runs after class registration.
-    @classmethod
-    def register(cls):
-
-        # Register keymaps first.
-        # Set macro defines, etc.
-        if hasattr(cls, "register_keymaps"):
-            cls.register_keymaps()
-        if hasattr(cls, "_register"):
-            cls._register()
-
-        keymaps = getattr(cls, "_keymaps", None)
-        if keymaps is None:
-            return
-
-        # Handle custom keymap edits.
-        data = prefs().operators[cls.__name__].kmidata
-        if len(data) == len(keymaps):
-            for (_, kmi, _), _kmi in zip(keymaps, data):
-                for key, val in zip(kmi_fields, from_str(_kmi.str)):
-                    if getattr(kmi, key) != val:
-                        setattr(kmi, key, val)
-
-        # Addon is registered for first time. Create kmidata.
-        elif keymaps:
-            # km, kmi, note
-            for _, kmi, _ in keymaps:
-                item = data.add()
-                item.name = kmi.idname
-                item.str = to_string(kmi)
-
-        # Shouldn't happen, unless we add/remove default addon keymaps
-        # TODO: Should this be handled?
-        # else:
-        #     raise ValueError("length mismatch %s" % cls)
-
-    @classmethod
-    def unregister(cls):
-        if hasattr(cls, "_unregister"):
-            cls._unregister()
-        kmi_remove(cls)
-
-
-class TextOperator(Mixin, bpy.types.Operator):
-    pass
-
-
-class TextMacro(Mixin, bpy.types.Macro):
-    pass
-
-
-class classproperty(property):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._get = self.fget.__get__
-        setdefault(self, "_set", getattr(self.fset, "__get__", None))
-        setdefault(self, "_del", getattr(self.fdel, "__get__", None))
-
-    def __get__(self, instance, cls):
-        return self._get(None, cls)()
-
-    def __set__(self, instance, value):
-        return self._set(None, type(instance))(value)
-
-    def __delete__(self, instance):
-        cls = type(instance)
-        return self._del(None, cls)(cls)
-
-
-# Run by register() in __init__.py to check if keymaps are ready. When they
-# are, this function will call register on its own.
-def keymaps_ensure(register, keymaps):
-    active = getattr(keymaps_ensure, "active", None)
-    if active is None:
-        active = bpy.context.window_manager.keyconfigs.active
-    km = active.keymaps
-    # All keymaps found, register addon.
-    if all(km_name in km for km_name in keymaps):
-        return register(ready=True)
-
-    # If not ready, defer registration up to 30 times or roughly 6 seconds.
-    elif setdefault(keymaps_ensure, "retries", 30) > 0:
-        keymaps_ensure.retries -= 1
-        return defer_call(0.2, register)
-
-    # If that fails, try default keyconfig as fallback.
-    elif getattr(keymaps_ensure, "active", None) is None:
-        kc = bpy.context.window_manager.keyconfigs
-        keymaps_ensure.active = kc.default
-        keymaps_ensure.retries = 30
-        return defer_call(0.2, register)
-
-    # When all else fails, print the active keymap and what keymaps exist.
-    else:
-        print("Textension: Failed in finding default keymaps")
-        for km_name in keymaps:
-            if km_name not in km:
-                print("Keymap %s missing in %s." % (km_name, kc.active.name))
-        print("Keymaps found:")
-        print(km.keys())
-        # Could happen if blender's keymaps were somehow missing.
-        # raise Exception("Default keymaps are corrupt. Restore Blender to "
-        #                 "factory defaults before enabling this addon")
-
-
-def wunits_get():
-    from bpy.utils import _preferences
-    system = _preferences.system
-    ui_scale = wunits = None
-
-    # Get the widget unit based on current ui scale.
-    def _wunits_get() -> int:
-        nonlocal ui_scale, wunits
-        if ui_scale != system.ui_scale:
-            ui_scale = system.ui_scale
-            p = system.pixel_size
-            pd = p * system.dpi
-            wunits = int((pd * 20 + 36) / 72 + (2 * (p - pd // 72)))
-        return wunits
-    return _wunits_get
-
-
-# System pointer is persistent, so bind it in a closure for faster access.
-wunits_get = wunits_get()
-
-
-# Do in-place addition with a default value.
 def iadd_default(obj, key, default, value):
+    """In-place addition with a default value."""
     ivalue = getattr(obj, key, default) + value
     setattr(obj, key, ivalue)
     return ivalue
 
 
-# Set kmi args context so subsequent additions are less verbose.
-def kmi_args(*args, **kwargs):
-    if kwargs:
-        kmi_args.kwargs = kwargs
-    else:
-        kmi_args.kwargs = {}
-    if len(args) == 4:
-        kmi_args.args = args
-    else:
-        args = iter(args)
-        kmi_args.args = [next(args, d) for d in kmi_args.args]
+def defer(func, *args, delay=0.0, **kw):
+    bpy.app.timers.register(lambda: func(*args, **kw), first_interval=delay)
 
 
-# Add a new keymap item.
-def kmi_new(*args, **kwargs):
-    if len(args) < 5:
-        kwargs.update(kmi_args.kwargs)
-        # Type only supplied
-        if len(args) == 1:
-            type, = args
-            cls, kmname, idname, value = kmi_args.args
-    else:
-        cls, kmname, idname, type, value = args
-
-    kmi_args.args = cls, kmname, idname, value
-
-    # If fallback exists, use it instead of active.
-    kc = bpy.context.window_manager.keyconfigs
-    if hasattr(keymaps_ensure, "kc"):
-        active = kc
-    else:
-        active = kc.active.keymaps.get(kmname)
-    if not active:
-        raise KeyError(f"{kmname} not in active keyconfig")
-
-    keymaps = kc.addon.keymaps
-    km = keymaps.get(kmname)
-    if not km:
-        # If an addon keymap doesn't exist, template it from active keyconfig.
-        km = keymaps.new(kmname,
-                         space_type=active.space_type,
-                         region_type=active.region_type,
-                         modal=active.is_modal)
-
-    # Notes are generally for displaying a custom label in the kmi ui, but
-    # can also be used to hide internal kmis with "HIDDEN".
-    note = kwargs.pop("note", "")
-    _kmi_new = km.keymap_items.new
-    if km.is_modal:
-        _kmi_new = km.keymap_items.new_modal
-    kmi = _kmi_new(idname, type, value, **kwargs)
-    setdefault(cls, "_keymaps", []).append((km, kmi, note))
-    kmi_new.properties = kmi.properties
-    return kmi.properties
-
-
-# Allow defining keymap item properties for last added keymap item.
-def kmi_op_args(**kwargs):
-    for key, val in kwargs.items():
-        setattr(kmi_new.properties, key, val)
-    del kmi_new.properties
-
-
-# Remove (addon) keymap item.
-def kmi_remove(cls):
-    for km, kmi, _ in setdefault(cls, "_keymaps", []):
-        km.keymap_items.remove(kmi)
-    del cls._keymaps[:], cls._keymaps
-
-    for kmi in setdefault(cls, "_disabled", []):
-        kmi.active = True
-    del cls._disabled[:], cls._disabled
-
-
-def defer_call(delay, func, *args, **kwargs):
-    from bpy.app.timers import register
-    register(lambda: func(*args, **kwargs), first_interval=delay)
-
-
-# Disable a keymap item
-def kmi_mute(cls, space: str, **kwargs):
-
-    # Should not happen unless argument is invalid
-    if setdefault(kmi_mute, "retries", 10) <= 0:
-        print("Error muting: %s on %s" % (kwargs.get("idname"), cls))
-
-    kc = bpy.context.window_manager.keyconfigs.active
-    km = kc.keymaps.get(space)
-    if km:
-        for kmi in km.keymap_items:
-            for key, val in kwargs.items():
-                if getattr(kmi, key) != val and val is not None:
-                    break
-            else:
-                kmi.active = False
-                return setdefault(cls, "_disabled", []).append(kmi)
-
-        else:
-            kmi_mute.retries -= 1
-            return defer_call(0.2, kmi_mute, cls, space, **kwargs)
-
-    # Keymap doesn't exist???
-    raise Exception("%s missing from keymap %s" % (space, kc))
-
-
-# Simple utility to set a default attribute on any object.
 def setdefault(obj, key, value, get=False):
+    """
+    Simple utility to set a default attribute on any object.
+    """
     if get:
         if not hasattr(obj, key):
             setattr(obj, key, value)
@@ -297,540 +190,851 @@ def setdefault(obj, key, value, get=False):
         return value
 
 
-def _kmi_sync():
-    _cls = data = None
-    op_get = prefs().operators.get
-
-    def kmi_ensure(cls, idx, kmi):
-        nonlocal _cls, data
-
-        if _cls != cls:
-            _cls = cls
-            data = op_get(cls.__name__).kmidata
-
-        kmistr = to_string(kmi)
-        item = data[idx]
-        if item.str != kmistr:
-            item.str = kmistr
-    return op_get, kmi_ensure
+def tabs_to_spaces(string, tab_width):
+    while "\t" in string:
+        tmp = " " * (tab_width - string.find("\t") % tab_width)
+        string = string.replace("\t", tmp, 1)
+    return string
 
 
-class KeymapData(bpy.types.PropertyGroup):
-    str: bpy.props.StringProperty()
+def setdef(obj, attr, val):
+    currval = getattr(obj, attr, Ellipsis)
+    if currval is Ellipsis:
+        setattr(obj, attr, val)
+        return val
+    return currval
 
 
-class Operators(bpy.types.PropertyGroup):
-    kmidata: bpy.props.CollectionProperty(type=KeymapData)
+def prefs_modify_cb(self, context):
+    prefs_modified_set()
 
 
-# Update kmi states (disable/enable) based on user preferences.
-def kmi_update(idname, state, all=True):
-    from . import classes
-
-    for cls in classes():
-        operator = op_get(cls.__name__)
-
-        # Not handling unless it happens at least once.
-        if not operator:
-            print("Unhandled exception: missing operator", cls.__name__)
-            return
-
-        keymaps = getattr(cls, "_keymaps", ())
-        for idx, (km, kmi, _) in enumerate(keymaps):
-            if kmi.idname.split(".")[1] != idname:
-                continue
-            kmi.active = state
-            operator.kmidata[idx].str = to_string(kmi)
-            if not all:
-                break
+def prefs_modified_set(prefs=bpy.context.preferences):
+    if not prefs.is_dirty:
+        prefs.is_dirty = True
 
 
-# kmi update callback.
-def kmi_cb(idname, key, all=True):
-    def cb(self, context):
-        return kmi_update(idname, getattr(self, key), all)
-    return cb
+def pmodify_wrap(func):
+    def wrap(self, context, *args, **kwargs):
+        ret = func(self, context, *args, **kwargs)
+        prefs_modified_set()
+        return ret
+    return wrap
 
 
-class TextensionPreferences(bpy.types.AddonPreferences):
+@types._inject_const(context=_context)
+def iter_areas(area_type='TEXT_EDITOR'):
+    for window in "const context".window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == area_type:
+                yield area
+
+
+def iter_regions(area_type='TEXT_EDITOR', region_type='WINDOW'):
+    for area in iter_areas(area_type):
+        for region in area.regions:
+            if region.type == region_type:
+                yield region
+
+
+def iter_spaces(space_type='TEXT_EDITOR'):
+    for area in iter_areas(space_type):
+        yield area.spaces.active
+
+
+def redraw_editors(area='TEXT_EDITOR', region_type='WINDOW'):
+    for region in iter_regions(area, region_type):
+        region.tag_redraw()
+
+
+def area_from_space_data(st):
+    for area in st.id_data.areas:
+        if area.spaces[0] == st:
+            return area
+
+def region_from_space_data(st, region_type='WINDOW'):
+    for region in area_from_space_data(st).regions:
+        if region.type == region_type:
+            return region
+
+
+
+def window_from_region(region: bpy.types.Region):
+    for win in _context.window_manager.windows:
+        if win.screen == region.id_data:
+            return win
+
+
+_region_types = set(
+    bpy.types.Region.bl_rna.properties['type'].enum_items.keys())
+_editors: dict[str: dict] = {}
+
+
+def add_draw_hook(fn: Callable, space: bpy.types.Space, args: tuple=(), *, 
+                  region: str='WINDOW', type: str='POST_PIXEL'):
+    """
+    Add a draw callback as a hook.
+    """
+    if not isinstance(args, tuple):
+        args = (args,)
+
+    assert isinstance(space, bpy.types.Space) or \
+           issubclass(space, bpy.types.Space), f"Bad space, got {repr(space)}"
+    # Not bulletproof. Some spaces don't have certain regions.
+    assert region in _region_types, f"Bad region type: {repr(region)}"
+
+    # Ensure arguments are bound reducing call overhead by 5%.
+    # This unfortunately modifies 'fn', but the alternative (copy)
+    # has a performance penalty and is unacceptable.
+    if args and fn.__defaults__ is None:
+        assert fn.__code__.co_argcount == len(args)
+        fn.__defaults__ = args
+    regions = _editors.setdefault(space, {})
+
+    if region not in regions:
+        # Region is new - register a region draw callback.
+        hooks = [fn]
+        def draw(hooks=hooks):
+            for func in hooks:
+                func()
+        handle = space.draw_handler_add(draw, (), region, type)
+        regions[region] = (handle, hooks)
+
+    else:
+        regions[region][1].append(fn)
+
+def remove_draw_hook(fn: Callable, *, region: str='WINDOW'):
+    """
+    Remove a draw hook. Returns whether it was removed successfully.
+    When the last hook is removed, the region callback is also removed.
+    """
+    found = False
+
+    for space, regions in list(_editors.items()):
+        if region in regions:
+            handle, hooks = regions[region]
+            if fn in hooks:
+                found = True
+                hooks.remove(fn)
+                if not hooks:
+                    space.draw_handler_remove(handle, region)
+                    del regions[region]
+            if not regions:
+                del _editors[space]
+        if found:
+            break
+    return found
+
+
+def spacetext_cache_factory(cls):
+    from .types import is_spacetext
+
+    @types._inject_const(cache=(const_cache := {}), cls=cls, is_spacetext=is_spacetext)
+    def instance_from_space(st: is_spacetext.__self__) -> cls:
+        try:
+            return "const cache"[st]
+        except:  # Assume KeyError
+            if not "const is_spacetext"(st):
+                raise TypeError(f"Expected a SpaceTextEditor instance, got {st}")
+            return "const cache".setdefault(st, "const cls"(st))
+    instance_from_space.clear: dict.clear = const_cache.clear
+    return instance_from_space
+
+# Cache dict with its __missing__ set to "func". "args" is used by "func" and
+# is changed by calling "params_set", which invalidates the cache.
+def defcache(func, *args, fwd=False, unpack=False):
+    all_caches = setdef(defcache, "all_caches", [])
+    if unpack:
+        def fallback(self, key, args=args):
+            self[key] = func(*key, *args)
+            return self[key]
+    else:
+        def fallback(self, key, args=args):
+            self[key] = func(key, *args)
+            return self[key]
+
+    class Cache(dict):
+        __missing__ = fallback
+        @staticmethod
+        def params_set(*args):
+            clear()
+            fallback.__defaults__ = (args,)
+    cache = Cache()
+    clear = cache.clear
+
+    if fwd:
+        if not isinstance(args, tuple):
+            args = (args,)
+        args += (cache,)
+
+    cache.params_set(*args)
+    all_caches.append(cache)
+    return cache
+
+
+def push_undo(text: bpy.types.Text):
+    return TextUndo(text).push_undo()
+
+
+def tag_modified(operator: bpy.types.Operator):
+    """
+    Calling this ensures that Textension operators that use TextUndo tags
+    the blend file as dirty.
+    """
+    if not bpy.data.is_dirty:
+        bpy.ops.ed.undo_push(message=operator.bl_label)
+
+
+def _redraw_now() -> None:
+    """
+    Redraw immediately. Only use when the alternative isn't acceptable.
+    """
+    stdout = sys.stdout
+    sys.stdout = StringIO()
+    try:
+        bpy.ops.wm.redraw_timer(iterations=1)
+    finally:
+        sys.stdout = stdout
+    return None
+
+def add_hittest(func: Callable, region: str="WINDOW"):
+    from . import TEXTENSION_OT_hit_test
+    TEXTENSION_OT_hit_test.hooks[region].append(func)
+
+def remove_hittest(func: Callable, region: str="WINDOW"):
+    from . import TEXTENSION_OT_hit_test
+    TEXTENSION_OT_hit_test.hooks[region].remove(func)
+
+def hit_test(context):
+    from . import TEXTENSION_OT_hit_test
+    return TEXTENSION_OT_hit_test.hit_test(context)
+
+def set_hittest_fail_hook(func):
+    from . import TEXTENSION_OT_hit_test
+    if func not in TEXTENSION_OT_hit_test.fail_hooks:
+        TEXTENSION_OT_hit_test.fail_hooks.append(func)
+    
+# from time import perf_counter
+# def _isect_check():
+#     # from .scrollbar import thumb_vpos_calc
+#     from bpy.types import SpaceTextEditor
+
+#     # TODO: 3.0 workaround
+#     # from .tabs import Tabs, isect_rect
+#     # tabs = Tabs()
+#     # TODO END
+
+#     # hover_clear = tabs.hover_clear
+
+#     # def scrollbar_test(context, x, y):
+#     #     # Inside scrollbar?
+#     #     # if not p.scrollbar.show_scrollbar:
+#     #     #     return
+#     #     region = context.region
+#     #     h = region.height
+#     #     w = region.width
+#     #     wu = system.wu
+#     #     wu_norm = wu * 0.05
+
+#     #     # Test the scrollbar (horizontal intersection)
+#     #     if w - int(wu - wu_norm) - 2 <= x:
+
+#     #         # Test the sidebar toggle
+#     #         ui = context.area.regions[2]
+#     #         if ui.alignment == 'RIGHT' and ui.width == 1:
+#     #             if x >= w - int(wu * 0.4) - 1 and x <= w:
+#     #                 if y >= h - int(wu * 1.4) - 1:
+#     #                     if y <= h - int(wu * 0.8 - wu_norm):
+#     #                         return "AZONE"
+
+#     #         # Test the scrollbar (vertical intersection)
+#     #         if x <= w - 2 and y <= h and y >= 0:
+#     #             ymin, ymax = thumb_vpos_calc(h, context.space_data)
+#     #             if ymin > -1:
+#     #                 if ymin <= y:
+#     #                     if y <= ymax:
+#     #                         return "THUMB"
+#     #                     return "UP"
+#     #                 return "DOWN"
+
+#     # def test_line_numbers(context, x, y):
+#     #     st = context.space_data
+#     #     rh = context.region.height
+#     #     if st.show_line_numbers:
+#     #         if p.use_line_number_select:
+#     #             if x <= st.lpad_px - (st.drawcache.cwidth_px + b"\n")[0]:
+#     #                 if x >= 1 and y <= rh and y >= 0:
+#     #                     return "LNUM"
+
+#     # def test_tabs(context, x, y):
+#     #     region = context.region
+#     #     if p.tabs.show_tabs:
+#     #         if region.type == 'HEADER':
+#     #             for label, (x1, y1, x2, y2), _ in tabs.data[region]:
+#     #                 if x1 <= x and x <= x2 and y1 <= y and y <= y2:
+#     #                     if tabs.hover[region] != label:
+#     #                         tabs.hover_set(region, label)
+#     #                     return
+#     #             hover_clear()
+
+#     def inner(context, mpos):
+#         st = context.space_data
+#         if not isinstance(st, SpaceTextEditor):
+#             # hover_clear()
+#             return
+
+#         region = context.region
+#         region_type = region.type
+#         x = mpos[0] - region.x
+#         y = mpos[1] - region.y
+#         rh = region.height
+#         p = prefs()
+
+#         # Inside window region.
+#         # Test against tabs
+#         # if p.tabs.show_tabs:
+#         #     if region_type == 'HEADER':
+#         #         for label, rect, _ in tabs.data[region]:
+#         #             if isect_rect(x, y, rect):
+#         #                 if tabs.hover[region] != label:
+#         #                     tabs.hover_set(region, label)
+#         #                 return
+#         #     # Clear hover, if any
+#         #     elif tabs.hover_active:
+#         #         hover_clear()
+#         #         return
+
+
+#     def clear():
+#         # nonlocal tabs, hover_clear
+#         # del tabs, hover_clear
+
+#         # nonlocal thumb_vpos_calc, SpaceTextEditor
+#         nonlocal SpaceTextEditor
+#         # del thumb_vpos_calc, SpaceTextEditor
+#         del SpaceTextEditor
+#         nonlocal inner
+#         del inner
+
+#     inner.clear = clear
+#     del clear, Tabs
+#     return inner
+
+
+
+
+class Operators(PropertyGroup):
+    
+    class KeymapData(PropertyGroup):
+        str: StringProperty()
+
+    @classmethod
+    def register(cls):
+        bpy.utils.register_class(cls.KeymapData)
+        cls.kmidata = CollectionProperty(type=cls.KeymapData)
+
+    @classmethod
+    def unregister(cls):
+        bpy.utils.unregister_class(cls.KeymapData)
+        del cls.kmidata
+
+
+to_string, from_str = serialize_factory()
+
+
+class TextensionRuntime(PropertyGroup):
+    """
+    Runtime settings @ bpy.context.window_manager.textension
+    """
+
+    tab: EnumProperty(items=(('CORE',    "Core",    "Core settings"),
+                             ('PLUGINS', "Plugins", "Plugins settings"),
+                             ('KEYMAPS', "Keymaps", "Keymaps settings")))
+
+    show_all_kmi: BoolProperty(default=False)
+
+    @classmethod
+    def register(cls):
+        bpy.types.WindowManager.textension = bpy.props.PointerProperty(type=cls)
+
+    @classmethod
+    def unregister(cls):
+        assert cls.is_registered
+        del bpy.types.WindowManager.textension
+
+
+class TextensionPreferences(bpy.types.AddonPreferences,
+                            PropertyGroup):
     """Textension Addon Preferences"""
     bl_idname = __package__
+    from .km_utils import kmi_cb
 
-    from .highlights import HighlightOccurrencesPrefs, draw_hlite_prefs
-    if not HighlightOccurrencesPrefs.is_registered:
-        bpy.utils.register_class(HighlightOccurrencesPrefs)
+    # Internal.
+    # Keep a simple track of install date to determine first install, so we
+    # can grab and set default syntax colors based on the active theme.
+    install_date: StringProperty(options={'HIDDEN'})
 
-    # Custom keymaps per operator are stored here.
-    operators: bpy.props.CollectionProperty(type=Operators)
-    highlights: bpy.props.PointerProperty(type=HighlightOccurrencesPrefs)
-
-    # Internal. Do not display in preferences ui!
-    show_line_highlight: bpy.props.BoolProperty(default=False)
-    show_line_numbers: bpy.props.BoolProperty(default=True)
-    show_syntax_highlight: bpy.props.BoolProperty(default=True)
-    show_word_wrap: bpy.props.BoolProperty(default=True)
-
-    tab: bpy.props.EnumProperty(
-        default="SETTINGS",
-        name="Preferences Tab",
-        items=(
-            ("SETTINGS", "Settings", "Main settings tab"),
-            ("HIGHLIGHT", "Highlight", "Highlight settings tab"),
-            ("KEYMAP", "Keymap", "Keymap settings tab")))
-
-    wheel_scroll_lines: bpy.props.IntProperty(
-        default=3,
-        name="Wheel Scroll Lines",
-        description="Amount of lines to scroll per wheel tick",
-        min=1,
-        soft_max=10)
-
-    nudge_scroll_lines: bpy.props.IntProperty(
-        default=3,
-        name="Nudge Scroll Lines",
-        description="Amount of lines to nudge scroll (ctrl + arrows)",
-        min=1,
-        soft_max=10)
-
-    use_smooth_scroll: bpy.props.BoolProperty(
+    wheel_scroll_lines: IntProperty(
+        name="Scroll Lines", description="Lines to scroll per wheel tick",
+        default=3, min=1, max=10,
+    )
+    nudge_scroll_lines: IntProperty(
+        name="Nudge Lines", description="Lines to nudge with Ctrl-Up/Down",
+        default=3, min=1, max=10,
+    )
+    use_smooth_scroll: BoolProperty(
+        name="Smooth Scrolling", description="Smooth scroll with mouse wheel",
+        default=True, update=kmi_cb("scroll2", "use_smooth_scroll"),
+    )
+    scroll_speed: FloatProperty(
+        name="Scroll Speed", description="Scroll speed multiplier",
+        default=5, min=1, max=20,
+    )
+    use_continuous_scroll: BoolProperty(
+        name="Continuous Scrolling",
+        description="Enable continuous scrolling with middle mouse",
         default=True,
-        name="Smooth Scrolling",
-        description="Allow smooth scrolling with mouse wheel",
-        update=kmi_cb("scroll2", "use_smooth_scroll"))
-
-    scroll_speed: bpy.props.FloatProperty(
-        default=5.0,
-        name="Smooth Scroll Speed",
-        description="Wheel scroll speed multiplier",
-        min=1,
-        max=10)
-
-    use_continuous_scroll: bpy.props.BoolProperty(
+        update=kmi_cb("scroll_continuous", "use_continuous_scroll"),
+    )
+    closing_bracket: BoolProperty(
+        name="Close Brackets", description="Automatically close brackets",
         default=True,
-        name="Continuous Scroll",
-        description="Enable continuous scrolling (default middle mouse)",
-        update=kmi_cb("scroll_continuous", "use_continuous_scroll"))
-
-    closing_bracket: bpy.props.BoolProperty(
-        default=True, name="Close Brackets", description="Automatically add "
-        "closing bracket")
-
-    use_new_linebreak: bpy.props.BoolProperty(
-        default=True,
+    )
+    use_new_linebreak: BoolProperty(
         name="New Line Break",
-        description="Use new line break which adds indentation",
-        update=kmi_cb("line_break", "use_new_linebreak"))
-
-    use_home_toggle: bpy.props.BoolProperty(
+        description="Use line break which adds indentation",
         default=True,
+        update=kmi_cb("line_break", "use_new_linebreak"),
+    )
+    use_home_toggle: BoolProperty(
         name="Home Toggle",
-        description="Home toggles between line start and first word",
-        update=kmi_cb("move_toggle", "use_home_toggle"))
-
-    use_search_word: bpy.props.BoolProperty(
+        description="Home key toggles between line start and indent level",
         default=True,
-        name="Search by Selection",
+        update=kmi_cb("move_toggle", "use_home_toggle"),
+    )
+    use_search_word: BoolProperty(
+        default=True, name="Search by Selection",
         description="Selected word is automatically copied to search field",
-        update=kmi_cb("search_with_selection", "use_search_word"))
-
-    use_cursor_history: bpy.props.BoolProperty(
+        update=kmi_cb("search_with_selection", "use_search_word"),
+    )
+    use_cursor_history: BoolProperty(
+        name="Use Cursor History",
+        description="Enable to use cursor history with mouse 4/5",
         default=True,
-        name="Enable Cursor History",
-        description="Enable to make use of cursor history",
-        update=kmi_cb("cursor_history", "use_cursor_history"))
-
-    use_header_toggle: bpy.props.BoolProperty(
-        default=True,
-        name="Toggle Header Hotkey",
-        description="Toggle text editor header with hotkey (default Alt)",
-        update=kmi_cb("toggle_header", "use_header_toggle"))
-
-    use_line_number_select: bpy.props.BoolProperty(
-        default=True,
+        update=kmi_cb("cursor_history", "use_cursor_history"),
+    )
+    use_header_toggle: BoolProperty(
+        name="Toggle Header", description="Toggle header with hotkey (Alt)",
+        default=True, update=kmi_cb("toggle_header", "use_header_toggle"),
+    )
+    use_line_number_select: BoolProperty(
         name="Line Number Select",
-        description="Enable to make line selection from line number margin",
-        update=kmi_cb("line_select", "use_line_number_select"))
-
-    triple_click: bpy.props.EnumProperty(
-        default='LINE',
-        name="Triple Click",
+        description="Select lines from line number margin",
+        default=True,
+        update=kmi_cb("line_select", "use_line_number_select"),
+    )
+    triple_click: EnumProperty(
+        name="Triple-Click",
         description="Type of selection when doing a triple click",
+        default='LINE',
         items=(("LINE", "Line", "Select entire line"),
-               ("PATH", "Path", "Select entire python path")))
+               ("PATH", "Path", "Select entire python path")),
+    )
+
+    def draw_plugins(self, context, layout):
+
+        # def plugin_layout(layout, plugin):
+            # layout.separator()
+
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        for plugin in self.plugins:
+            module = plugin.module
+            box = layout.box()
+            row = box.row(heading=plugin.name.replace("_", " ").title())
+            split = row.split()
+            row = split.row()
+            row.prop(plugin, "enabled", text="Enable", toggle=True)
+
+            row.label()
+
+            if plugin.enabled:
+                draw_func = getattr(module, "draw_settings", None)
+
+                # For custom plugin draw method
+                if draw_func is not None:
+                    if plugin.show_settings:
+                        col = box.column()
+                        col.separator(factor=0.5)
+                        draw_func(self, context, col)
+                        col.separator(factor=0.5)
+
+                    kwargs = {"text": "Settings", "toggle": True, "icon": "NONE"}
+
+                    # If the poll returns False, set an error icon
+                    if getattr(module, "poll_plugin", None.__class__)() is False:
+                        kwargs["icon"] = "ERROR"
+
+                    row.prop(plugin, "show_settings", **kwargs)
+                else:
+                    row.label()
+            else:
+                row.label()
+            # plugin_layout(layout, p)
+
+    def draw_keymaps(self, context, layout):
+        col = layout.column(align=True)
+        # rw = context.region.width
+
+        rw = context.region.width
+        textension = context.window_manager.textension
+        show_all = textension.show_all_kmi
+        text = "Show All" if not show_all else "Collapse"
+        col.prop(textension, "show_all_kmi", text=text, emboss=False)
+        col.separator(factor=2)
+
+        kmi_range = slice(19 if not show_all else None)
+
+        # Custom keymaps are stored on each operator.
+        for cls in classes()[kmi_range]:
+            keymaps = getattr(cls, "_keymaps", ())
+            for idx, (km, kmi, note) in enumerate(keymaps):
+                if note == "HIDDEN":
+                    continue
+
+                km_utils.kmi_ensure(cls, idx, kmi)
+                self.draw_kmi(col, rw, kmi, note)
+
+        col.separator(factor=2)
+        if show_all:
+            col.prop(textension, "show_all_kmi", text=text, emboss=False)
+
 
     def draw(self, context):
         layout = self.layout
+
+        row = layout.row()
+        row.prop(self.runtime, "tab", expand=True)
+        layout.separator()
+
         row = layout.row()
         row.alignment = 'CENTER'
-        row.scale_x = 0.5
-        row.scale_y = 1.4
-        row.prop(self, "tab", expand=True)
-        layout.separator(factor=2)
+        col = row.column(align=True)
+        # col.ui_units_x = 20
 
+        if self.runtime.tab == 'PLUGINS':
+            self.draw_plugins(context, col)
+        elif self.runtime.tab == 'KEYMAPS':
+            self.draw_keymaps(context, col)
+
+        """
+        textension = context.window_manager.textension
+        if textension is None:
+            return
+        tab = textension.tab
+        rw = context.region.width
+        if tab != 'KEYMAP' and textension.show_all_kmi:
+            textension.show_all_kmi = False
+        show_all = textension.show_all_kmi
+
+        layout = self.layout
         mainrow = layout.row()
-        mainrow.alignment = 'CENTER'
 
-        if self.tab == 'SETTINGS':
-            col = mainrow.column()
-            col.scale_y = 1.25
-            col.scale_x = 0.7
-            row = col.row()
-            split = row.split(factor=0.5)
-            split.label(text="Wheel Scroll Lines")
-            split.prop(self, "wheel_scroll_lines", text="", slider=True)
+        # Tab column.
+        tabcol = mainrow.column()
+        tabcol.alignment = 'LEFT'
+        tabcol.ui_units_x = 3.5
+        tabcol.scale_y = 1.1
+        tabcol.prop(textension, "tab", expand=True)
 
-            row = col.row()
-            split = row.split(factor=0.5)
-            split.label(text="Nudge Scroll Lines")
-            split.prop(self, "nudge_scroll_lines", text="", slider=True)
-            row = col.row()
-            split = row.split(factor=0.5)
-            split.label(text="Smooth Scroll Speed")
-            split.prop(self, "scroll_speed", slider=True, text="")
-            col.separator()
-            row = col.row()
-            row.scale_x = 0.4
-            split = row.split(factor=0.5)
-            split.label(text="Triple clicking selects:")
-            split.row().prop(self, "triple_click", expand=True)
+        row = mainrow.row()
+        row.alignment = 'CENTER'
 
-            layout.separator(factor=2)
+        def rowgroup(layout, title):
+            if isinstance(title, tuple):
+                prop = title
+            else:
+                prop = None
             row = layout.row()
-            row.scale_y = 1.25
-            row.alignment = 'CENTER'
-            col = row.grid_flow(columns=2)
-            col.prop(self, "use_smooth_scroll")
-            col.prop(self, "use_continuous_scroll")
+            row.alignment = 'LEFT'
+            row.ui_units_x = 20
+            col = row.column()
+            col.ui_units_x = 20
+            b = col.box()
+            b.scale_y = 0.5
+            if prop:
+                state = getattr(*prop)
+                r = b.row()
+                r.alignment = 'LEFT'
+                icon = "CHECKBOX_HLT" if state else "CHECKBOX_DEHLT"
+                r.emboss = 'NONE'
+                r.prop(*prop, icon=icon)
+            else:
+                b.label(text=title)
+            col.separator(factor=0.2)
+            r = col.row()
+            return r
 
-            col.prop(self, "closing_bracket")
-            col.prop(self, "use_new_linebreak")
-            col.prop(self, "use_line_number_select")
-            col.prop(self, "use_home_toggle")
-            col.prop(self, "use_search_word")
-            col.prop(self, "use_cursor_history")
-            col.prop(self, "use_header_toggle")
+        def prop_split(layout, data, prop, **kw):
+            col = layout.column(align=True)
+            split = col.split(factor=0.25)
+            split.prop(data, prop, text="", **kw)
+            title = data.__annotations__[prop][1]["name"]
+            split.label(text=title)
 
-        elif self.tab == 'HIGHLIGHT':
-            self.draw_hlite_prefs(self.highlights, context, mainrow)
+        def rpad(layout, align=True):
+            r = layout.row(align=align)
+            r.alignment = 'LEFT'
+            return r
 
-        elif self.tab == 'KEYMAP':
-            col = mainrow.column(align=True)
-            rw = context.region.width
-            for cls in classes():
+        self.tabcol = tabcol
+        self.mainrow = mainrow
+        self.row = row
+        # self.colgroup = colgroup
+
+        if tab == 'MAIN':
+            col = row.column()
+            columns = int(context.region.width / 405)
+            flow = col.grid_flow(columns=columns, row_major=True, align=True)
+
+            # Navigation.
+            rg = rowgroup(flow, "Navigation")
+            c = rg.column()
+            c.prop(self, "use_smooth_scroll")
+            c.prop(self, "use_continuous_scroll")
+            c.prop(self, "use_home_toggle")
+
+            c = rg.column()
+            c.prop(self, "scroll_speed")
+            c.prop(self, "wheel_scroll_lines")
+            c.prop(self, "nudge_scroll_lines")
+            c.separator(factor=4)
+
+            # Editing.
+            rg = rowgroup(flow, "Editing")
+            c = rg.column()
+            c.prop(self, "use_line_number_select")
+            c.prop(self, "use_search_word")
+            c.prop(self, "use_new_linebreak")
+            c.prop(self, "closing_bracket")
+            c.separator(factor=4)
+            c = rg.column()
+            c.ui_units_x = 8.2
+            c.prop(self, "use_header_toggle")
+            c.separator(factor=1)
+            c.label(text="Triple Click Select")
+            r = rpad(c)
+            r.prop(self, "triple_click", expand=True)
+
+            # Cursor.
+            # syntax = self.syntax
+            rg = rowgroup(flow, "Cursor")
+            c = rg.column()
+            c.prop(self, "use_cursor_history")
+
+            # Row > align left > column > ui_units 1
+            r = c.row(align=True)
+            r.alignment = 'LEFT'
+            cs = r.column()
+            # cs.prop(syntax.colors, "currct", text="")
+            cs.ui_units_x = 1
+            r.separator(factor=0.4)
+            r.label(text="Cursor Color")
+
+            c.separator()
+            r = c.row(align=True)
+            r.alignment = 'LEFT'
+            cs = r.column()
+            cs.label(text="Cursor Type")
+            # cs.prop(syntax, "cursor_type", text="")
+
+            c = rg.column()
+            c.ui_units_x = 8
+            # c.prop(syntax, "smooth_cursor")
+            r = c.row()
+            c = r.column()
+            # c.enabled = syntax.smooth_cursor
+            # c.prop(syntax, "smooth_typing")
+            c.separator(factor=1)
+
+            r = c.row(align=True)
+            r1 = r.row()
+            r1.label(text="Direction")
+            r2 = r.row(align=True)
+            r2.alignment = 'RIGHT'
+            r2.ui_units_x = 6
+            # r2.prop(syntax, "smooth_horz", toggle=True)
+            # r2.prop(syntax, "smooth_vert", toggle=True)
+            r = c.row()
+            r1 = r.row(align=True)
+            r1.alignment = 'LEFT'
+            r1.label(text="Speed")
+            r2 = r.row(align=True)
+            r2.alignment = 'RIGHT'
+            c = r2.column()
+            # c.prop(syntax, "cursor_speed", slider=True)
+            c.ui_units_x = 6
+            c.separator(factor=4)
+
+            # Tabs.
+            tabs = self.tabs
+            rg = rowgroup(flow, (tabs, "show_tabs"))
+            if tabs.show_tabs:
+                c = rg.column(align=True)
+                c.prop(tabs, "use_large_tabs")
+                c.prop(tabs, "fit_to_region")
+                c.separator()
+                c.prop(tabs, "drag_to_reorder")
+                c.prop(tabs, "mmb_close")
+                c.prop(tabs, "double_click_new")
+
+                c = rg.column(align=True)
+                c.ui_units_x = 8
+                c.prop(tabs, "show_new_menus")
+                c.separator()
+                c.label(text="Run Script Button")
+                c.prop(tabs, "run_script_text")
+                c.prop(tabs, "run_script_icon")
+                c.prop(tabs, "run_script_emboss")
+                c.separator()
+
+            # rg = rowgroup(flow, "Tabs")
+
+        if tab == 'HIGHLIGHT':
+            self.draw_hlite_prefs(self.highlights, context, row)
+
+        # Draw custom keymaps.
+        if tab == 'KEYMAP':
+            col = row.column(align=True)
+            # rw = context.region.width
+
+            text = "Show All" if not show_all else "Collapse"
+            col.prop(textension, "show_all_kmi", text=text, emboss=False)
+            col.separator(factor=2)
+
+            kmi_range = slice(19 if not show_all else None)
+
+            # Custom keymaps are stored on each operator.
+            for cls in classes()[kmi_range]:
                 keymaps = getattr(cls, "_keymaps", ())
                 for idx, (km, kmi, note) in enumerate(keymaps):
                     if note == "HIDDEN":
                         continue
 
-                    kmi_ensure(cls, idx, kmi)
-                    draw_kmi(col, rw, kmi, note)
+                    km_utils.kmi_ensure(cls, idx, kmi)
+                    self.draw_kmi(col, rw, kmi, note)
 
+            col.separator(factor=2)
+            if show_all:
+                col.prop(textension, "show_all_kmi", text=text, emboss=False)
+
+        # elif tab == 'SYNTAX':
+        #     self.syntax.draw(self, context)
+        # elif tab == 'TABS':
+        #     self.tabs.draw(self.layout, context)
+        layout.separator(factor=4)
+"""
     @classmethod
     def register(cls):
-        global op_get, kmi_ensure, prefs, classes
+        p = bpy.context.preferences.addons[__package__].preferences
+        # Bind prefs default arg for faster access
+        prefs.__defaults__ = (p,)
+
+        global ud
+        ud = UnifiedDraw()
+
+        # Register textension operator kmi data.
+        register_class(Operators)
+        cls.operators = CollectionProperty(type=Operators)
+
+        from .types import Plugin
+        register_class(Plugin)
+        cls.plugins = CollectionProperty(type=Plugin)
+
+        plugins = p.plugins
+        from . import get_plugins
+        plugins_dict = get_plugins()
+
+        # If a previously found plugin no longer exists, remove its entry.
+        for index, plugin in reversed(list(enumerate(plugins))):
+            if plugin.name not in plugins_dict:
+                plugins.remove(index)
+
+        for name, module in plugins_dict.items():
+            plugin: Plugin = plugins.get(name)
+
+            if plugin is None:
+                plugin = plugins.add()
+                plugin.name = name
+                plugin.full_name = module.__name__
+
+            if plugin.enabled:
+                plugin.module.enable()
+
+
+        global km_utils
+        from . import km_utils
+        cls.kmi_ensure = staticmethod(km_utils.kmi_ensure)
+        cls.draw_kmi = staticmethod(km_utils.draw_kmi)
+
+        # Convenience access to TextensionRuntime instance
+        register_class(TextensionRuntime)
+        cls.runtime = bpy.context.window_manager.textension
+
+        # TODO: Move into cls (used for kmi display).
+        global classes
+
+        operators = p.operators
         from . import classes
-
-        prefs = _prefs()
-        op_get, kmi_ensure = _kmi_sync()
-
-        addon = bpy.context.preferences.addons[__package__]
-        operators = addon.preferences.operators
-        from . import classes
-
-        for cls in classes():
-
-            # TODO: Add check for keymap length?
-            if operators.get(cls.__name__):
+        for cls_ in classes():
+            if operators.get(cls_.__name__):
                 continue
             op = operators.add()
-            op.name = cls.__name__
+            op.name = cls_.__name__
+
+        msg = f"Previously installed ({p.install_date})"
+
+        if not p.install_date:
+            msg = "First time install"
+            from time import asctime
+            cls._first_time_install = True
+            p.install_date = f"{asctime()}"
+
+        log("ADDON", msg)
+
+    @classmethod
+    def unregister(cls):
+        p = prefs()
+
+        for plugin in p.plugins:
+            if plugin.enabled:
+                plugin.module.disable()
+
+        from .types import Plugin
+        unregister_class(Plugin)
+        del cls.plugins
+
+        unregister_class(TextensionRuntime)
+        del cls.runtime
+
+        unregister_class(Operators)
+        del cls.operators
+
+        del cls.kmi_ensure
+        del cls.draw_kmi
+
+        global ud
+        ud.nuke()
+        del ud
+        caches = getattr(defcache, "all_caches", [])
+        for c in caches:
+            c.clear()
+        caches.clear()
+
+        assert not bool(_editors), f"_editors not cleared, {_editors}"
+
+        # Unbind and invalidate prefs
+        prefs.__defaults__ = (None,)
 
 
-def draw_kmi(layout, rw, kmi, note):
-    layout.ui_units_x = min(22, rw / 20)
-    mainrow = layout.row()
-    inner_row = mainrow.row()
-    inner_row.alignment = 'LEFT'
-    inner_row.prop(kmi, "active", text="", emboss=False)
-    inner_row.active = kmi.active
-    inner_row.emboss = 'NONE'
-    inner_row.prop(kmi, "show_expanded", text=note or kmi.name)
-
-    if kmi.active:
-        row = mainrow.row(align=True)
-        row.alignment = 'RIGHT'
-        row.emboss = 'NORMAL'
-        row.prop(kmi, "type", text="", full_event=True)
-
-        if kmi.show_expanded:
-            split = layout.split(factor=0.1)
-            split.separator()
-            split = split.split(factor=0.47)
-            row = split.row()
-            row.emboss = 'NORMAL'
-            row.prop(kmi, "map_type", text="")
-            row = split.row(align=True)
-            row.alignment = 'CENTER'
-            if kmi.map_type != 'KEYBOARD':
-                row.prop(kmi, "type", text="")
-            prop = row.prop
-            prop(kmi, "alt", toggle=True)
-            prop(kmi, "ctrl", toggle=True)
-            prop(kmi, "shift", toggle=True)
-            prop(kmi, "oskey", toggle=True, text="OS")
-            row = row.row(align=True)
-            row.scale_x = 0.5
-            row.prop(kmi, "key_modifier", event=True, text="")
-    else:
-        kmi.show_expanded = False
-    mainrow.active = kmi.active
-
-
-# Utils for accessing C structs
-class ID(ctypes.Structure):
-    pass
-
-
-class TextLine(ctypes.Structure):
-    pass
-
-
-class Text(ctypes.Structure):
-    pass
-
-
-class SpaceText(ctypes.Structure):
-    pass
-
-
-class SpaceText_Runtime(ctypes.Structure):
-    pass
-
-
-class wmEvent(ctypes.Structure):
-    def __init__(self):
-        import ctypes  # Not sure why linting fails without this?
-        p = ctypes.POINTER(wmEvent)
-        from_address = p.from_address
-
-        def cast(ptr):
-            return p(from_address(ptr))
-        self.cast = cast
-
-    def __call__(self, ptr):
-        ret = self.cast(ptr)
-        if ret and ret.contents:
-            return ret.contents
-        return None
-
-
-class DrawCache(ctypes.Structure):
-    _fields_ = (
-        ("line_height", ctypes.POINTER(ctypes.c_int)),
-        ("total_lines", ctypes.c_int),
-        ("nlines", ctypes.c_int))
-
-
-def listbase(type_=None):
-    import ctypes
-    type_ptr = ctypes.POINTER(type_)
-    fields = ("first", type_ptr), ("last", type_ptr)
-    return type("ListBase", (ctypes.Structure,), {'_fields_': fields})
-
-
-id_p = ctypes.POINTER(ID)
-textline_p = ctypes.POINTER(TextLine)
-spacetext_rt_p = ctypes.POINTER(SpaceText_Runtime)
-
-ID._fields_ = (
-    ("next", ctypes.c_void_p),
-    ("prev", ctypes.c_void_p),
-    ("newid", ctypes.c_void_p),
-    ("lib", ctypes.c_void_p),
-    ("name", ctypes.c_char * 66),
-    ("flag", ctypes.c_short),
-    ("tag", ctypes.c_int),
-    ("us", ctypes.c_int),
-    ("icon_id", ctypes.c_int),
-    ("recalc", ctypes.c_int),
-    ("_pad[4]", ctypes.c_char * 4),
-    ("properties", ctypes.c_void_p),
-    ("override_library", ctypes.c_void_p),
-    ("orig_id", id_p),
-    ("pyinstance", ctypes.c_void_p)
-)
-TextLine._fields_ = (
-    ("next", textline_p),
-    ("prev", textline_p),
-    ("line", ctypes.c_char_p),
-    ("format", ctypes.c_char_p),
-    ("len", ctypes.c_int),
-    ("_pad0", ctypes.c_char * 4)
-)
-Text._fields_ = (
-    ("id", ID),
-    ("name", ctypes.c_char_p),
-    ("compiled", ctypes.c_void_p),
-    ("flags", ctypes.c_int),
-    ("nlines", ctypes.c_int),
-    ("lines", listbase(type_=TextLine)),
-    ("curl", textline_p),
-    ("sell", textline_p),
-    ("curc", ctypes.c_int),
-    ("selc", ctypes.c_int),
-    ("mtime", ctypes.c_double)
-)
-SpaceText_Runtime._fields_ = (
-    ("lheight_px", ctypes.c_int),
-    ("cwidth_px", ctypes.c_int),
-    ("scroll_rects", ctypes.c_int * 4 * 2),
-    ("line_numbers", ctypes.c_int),
-    ("viewlines", ctypes.c_int),
-    ("scroll_px_per_line", ctypes.c_float),
-    ("_offs_px", ctypes.c_int * 2),
-    ("_pad1", ctypes.c_char * 4),
-    ("drawcache", ctypes.POINTER(DrawCache))
-)
-SpaceText._fields_ = (
-    ("links", ctypes.c_void_p * 2),
-    ("regionbase", ctypes.c_void_p * 2),
-    ("spacetype", ctypes.c_char),
-    ("link_flag", ctypes.c_char),
-    ("pad0", ctypes.c_char * 6),
-    ("text", ctypes.c_void_p),
-    ("top", ctypes.c_int),
-    ("left", ctypes.c_int),
-    ("_pad1", ctypes.c_char * 4),
-    ("flags", ctypes.c_short),
-    ("lheight", ctypes.c_short),
-    ("tabnumber", ctypes.c_int),
-    ("wordwrap", ctypes.c_char),
-    ("doplugins", ctypes.c_char),
-    ("showlinenrs", ctypes.c_char),
-    ("showsyntax", ctypes.c_char),
-    ("line_hlight", ctypes.c_char),
-    ("overwrite", ctypes.c_char),
-    ("live_edit", ctypes.c_char),
-    ("_pad2", ctypes.c_char),
-    ("findstr", ctypes.c_char * 256),
-    ("replacestr", ctypes.c_char * 256),
-    ("margin_column", ctypes.c_short),
-    ("_pad3", ctypes.c_char * 2),
-    ("runtime", SpaceText_Runtime),
-)
-
-wmEvent._fields_ = (
-    ("next", ctypes.POINTER(wmEvent)),
-    ("prev", ctypes.POINTER(wmEvent)),
-    ("type", ctypes.c_short)
-)
-Event = wmEvent()
-ST_RUNTIME_OFFS = SpaceText.runtime.offset
-SCROLL_OFFS = ST_RUNTIME_OFFS + SpaceText_Runtime._offs_px.offset
-ST_FLAGS_OFFS = SpaceText.flags.offset
-
-
-def _scroll_offset_get():
-    import ctypes
-    ivec2_p = ctypes.POINTER(ctypes.c_int * 2)
-    from_addr = ivec2_p.from_address
-
-    def scroll_offset_get(st):
-        ret = ivec2_p(from_addr(SCROLL_OFFS + st.as_pointer()))
-
-        if ret and ret.contents:
-            return ret.contents[1]
-        return 0
-    return scroll_offset_get
-
-
-scroll_offset_get = _scroll_offset_get()
-
-
-def st_runtime():
-    from ctypes import POINTER, cast, c_short
-    c_short_p = POINTER(c_short)
-    st_runtime_p = POINTER(SpaceText_Runtime)
-
-    # Wrapper for space text runtime data.
-    # scroll_max: maximum st.top allowed to scroll.
-    class STRuntime(SpaceText_Runtime):
-        def __init__(self, context, scroll_max=None):
-            self.st = st = context.space_data
-            if st.type != 'TEXT_EDITOR':
-                raise ValueError
-
-            st_p = st.as_pointer()
-
-            # ST_SCROLL_SELECT is assumed (1 << 0)
-            # Must be enabled to allow scrolling.
-            cast(st_p + ST_FLAGS_OFFS, c_short_p).contents.value |= 0x1
-
-            runtime = cast(st_p + ST_RUNTIME_OFFS, st_runtime_p).contents
-            self.offsets = runtime._offs_px
-            self.lheight = int(1.3 * runtime.lheight_px)
-            self.accum = 0
-            if scroll_max is None:
-                scroll_max = len(st.text.lines)
-            self.scroll_max = scroll_max
-            self.runtime = runtime
-            # self.drawcache = runtime.drawcache.contents
-
-        @property
-        def nlines(self):
-            return self.runtime.drawcache.contents.nlines
-
-        @property
-        def total_lines(self):
-            return self.runtime.drawcache.contents.total_lines
-
-        @property
-        def offset_px(self):
-            return 0
-
-        # Setting this affects draw offsets directly.
-        @offset_px.setter
-        def offs_px(self, value):
-            st = self.st
-            lheight = self.lheight
-            offsets = self.offsets
-            # y_offset = offsets[1]
-            lines = 0
-            top = st.top
-
-            temp = value + self.accum
-            px = round(temp)
-            self.accum = temp - px
-            scroll_max = self.scroll_max
-
-            # Clamp top and bottom.
-            if top >= scroll_max and px > 0:
-                st.top = scroll_max
-                offsets[1] = 0
-                return
-            elif top < 1:
-                if top < 0:
-                    st.top = 0
-                if px < 0:
-                    offsets[1] = 0
-                    return
-
-            px_tot = offsets[1] + px
-
-            if px_tot < 0:
-                lines = int((-lheight + px_tot) / lheight)
-                px_tot += lheight * abs(lines)
-
-            elif px_tot > 0:
-                lines = int(px_tot / lheight)
-                px_tot -= lheight * abs(lines)
-
-            st.top += lines
-            px_tot -= offsets[1]
-            offsets[1] += px_tot
-    return STRuntime
-
-
-STRuntime = st_runtime()
-
-del ctypes, id_p, textline_p, st_runtime
+del serialize_factory
