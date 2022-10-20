@@ -9,6 +9,11 @@ from bpy.types import SpaceTextEditor, Text
 is_spacetext = SpaceTextEditor.__instancecheck__
 is_text = Text.__instancecheck__
 
+
+def noop():
+    pass
+
+
 def _inject_const(**kwargs):
     """
     Internal.
@@ -60,7 +65,7 @@ class mutable_classproperty:
             return ret
         setattr(cls, attr, property(mutate))
 
-Callable = type(lambda: None)
+Callable = type(noop)
 
 class HitTestData:
     from _bpy import context
