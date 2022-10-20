@@ -149,11 +149,10 @@ class ImmRectBase:
         self.y = row2[3] = y
         self.width = row1[0] = w
         self.height = row2[1] = h
-
         gpu.state.blend_set(self.blend_type)
-        self.draw()
+        self._draw()
 
-    def draw(self):
+    def _draw(self):
         self.shader.bind()
         for attr, value in self.uniforms.items():
             self.shader.uniform_float(attr, value)
@@ -215,7 +214,7 @@ class GLTexture(ImmRectBase):
     def resize(self, width, height):
         self.__init__(width, height)
 
-    def draw(self):
+    def _draw(self):
         self.shader.bind()
         self.shader.uniform_float("mat", self.matrix)
         self.shader.uniform_sampler("image", self.color_texture)
