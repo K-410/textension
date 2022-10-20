@@ -50,8 +50,7 @@ def _inject_const(**kwargs):
 #         return self
 
 class mutable_classproperty:
-    """
-    Mutable property that mutates the attribute from a property
+    """Mutable property that mutates the attribute from a property
     descriptor to the returned value of the decorated function.
     Only for class attributes.
     """
@@ -82,9 +81,7 @@ class HitTestData:
 
 
 class Plugin(bpy.types.PropertyGroup):
-    """
-    Represents a Textension plugin which can be enabled/disabled.
-    """
+    """Represents a Textension plugin which can be enabled/disabled."""
 
     # The plugin's associated python module
     @property
@@ -416,9 +413,7 @@ class TextUndo:
             return self
 
     def validate(self) -> None:
-        """
-        Add missing TextUndo for all texts.
-        """
+        """Add missing TextUndo for all texts."""
         text_ids = set()
         store = self.store
         for text in bpy.data.texts:
@@ -433,16 +428,12 @@ class TextUndo:
                 del store[id]
 
     def push_undo(self) -> None:
-        """
-        Add an undo step, storing current text block state onto the stack.
-        """
+        """Add an undo step, storing current text state onto the stack."""
         self.redo.clear()
         self.undo.append(self.snapshot())
 
     def get_text(self) -> Text:
-        """
-        Return the text block associated with this instance.
-        """
+        """Return the text block associated with this instance."""
         match = None
         text_ids = []  # Debug
         for text in bpy.data.texts:
@@ -457,15 +448,12 @@ class TextUndo:
         return match
 
     def snapshot(self) -> tuple[str, tuple[int, int, int, int]]:
-        """
-        Return a tuple with current text as string and cursor.
-        """
+        """Return a tuple with current text as string and cursor."""
         text = self.get_text()
         return "\n".join(l.body for l in text.lines), text.cursor
 
     def load_state(self, state: int) -> bool:
-        """
-        Load an undo (0) or redo (1) state onto this TextUndo instance's
+        """Load an undo (0) or redo (1) state onto this TextUndo instance's
         data-block. When undoing, current state is pushed onto redo stack.
         """
         assert state in (0, 1), f"Expected integer in (0, 1), got {state}"
