@@ -98,9 +98,7 @@ from gpu.types import (GPUShader,
 
 
 class ImmRectBase:
-    """
-    Base for immediate-mode drawable rectangles
-    """
+    """Base for immediate-mode drawable rectangles"""
 
     matrix: Matrix
     x:      float
@@ -136,9 +134,7 @@ class ImmRectBase:
         self.background = self.uniforms["background"] = [1.0, 1.0, 1.0, 1.0]
 
     def set_background_color(self, r, g, b, a):
-        """
-        Set the background color using a sequence of 4 floats.
-        """
+        """Set the background color using a sequence of 4 floats."""
         try:
             # When this fails due to bad type, the exception thrown is useful.
             flt = float
@@ -148,7 +144,6 @@ class ImmRectBase:
 
     def __call__(self, x: float, y: float, w: float, h: float) -> None:
         """Draw at the coordinates (x, y) with size (w, h)"""
-
         row1, row2 = self._rows12
         self.x = row1[3] = x
         self.y = row2[3] = y
@@ -166,10 +161,7 @@ class ImmRectBase:
 
 
     def hit_test(self, x: int | float, y: int | float) -> bool:
-        """
-        Hit test this rectangle. Assumes x/y is region space.
-        """
-
+        """Hit test this rectangle. Assumes x/y is region space."""
         x -= self._row1[3]
         if x >= 0 and x < self._row1[0]:
             y -= self._row2[3]
