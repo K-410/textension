@@ -394,9 +394,9 @@ class TextUndo:
 
     def __new__(cls, text: Text, *, validate=True, store=store):
         assert is_text(text)
-
+        id = text.id
         try:
-            return store[id := text.id]
+            return store[id]
 
         except KeyError:
             self = store[id] = super().__new__(cls)
