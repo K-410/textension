@@ -4,6 +4,7 @@
 import bpy
 import ctypes
 from bpy.types import SpaceTextEditor, Text
+from typing import Any
 
 
 is_spacetext = SpaceTextEditor.__instancecheck__
