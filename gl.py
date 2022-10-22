@@ -1,11 +1,25 @@
 # This module implements classes for custom drawing.
 
-import gpu
+from contextlib import contextmanager
+
+from gpu.state import blend_set, viewport_get, viewport_set
+from gpu.types import (GPUBatch, GPUFrameBuffer, GPUShader, GPUTexture,
+                       GPUVertBuf)
+from mathutils import Matrix, Vector
+
+
+# Shader and batch caches. These should be cleared when addon is uninstalled.
+shader_cache = {}
+batch_cache = {}
+
+
+def clear_caches():
+    shader_cache.clear()
+    batch_cache.clear()
 
 
 # Generic rectangle vertex shader.
-# 'mat' is assumed to hold the scale and
-# translation of the rectangle.
+# mat is assumed to hold the scale and translation of the rectangle.
 xyzw_vert = """
 uniform mat4 ProjectionMatrix;
 uniform mat4 mat;
@@ -14,9 +28,9 @@ void main() {
     gl_Position = ProjectionMatrix * mat * pos;
 }"""
 
+
 # Bordered rectangle fragment shader.
-# 'r' holds the roundness of the rectangle and
-# a value of 1 means no roundness.
+# r holds the rounding radius and a value of 1 means no roundness.
 rect_bordered_frag = """
 uniform mat4 mat;
 uniform float r = 1.0f;  // Roundness.
@@ -78,24 +92,6 @@ void main() {
 }
 '''
 
-# Shader and batch caches. These must be cleared when addon is uninstalled.
-shader_cache = {}
-batch_cache = {}
-
-
-def clear_caches():
-    shader_cache.clear()
-    batch_cache.clear()
-
-from mathutils import Matrix
-from contextlib import contextmanager
-from gpu.state import viewport_get, viewport_set
-from gpu.types import (GPUShader,
-                       GPUVertBuf,
-                       GPUBatch,
-                       GPUTexture,
-                       GPUFrameBuffer)
-
 
 class ImmRectBase:
     """Base for immediate-mode drawable rectangles"""
@@ -131,7 +127,7 @@ class ImmRectBase:
         self.matrix = self.uniforms["mat"] = Matrix()
         # Bind the first two matrix rows for faster attribute access.
         self._rows12 = (self._row1, self._row2) = self.matrix[:2]
-        self.background = self.uniforms["background"] = [1.0, 1.0, 1.0, 1.0]
+        self.background = self.uniforms["background"] = Vector((1.0, 1.0, 1.0, 1.0))
 
     def set_background_color(self, r, g, b, a):
         """Set the background color using a sequence of 4 floats."""
@@ -149,7 +145,7 @@ class ImmRectBase:
         self.y = row2[3] = y
         self.width = row1[0] = w
         self.height = row2[1] = h
-        gpu.state.blend_set(self.blend_type)
+        blend_set(self.blend_type)
         self._draw()
 
     def _draw(self):
@@ -254,7 +250,7 @@ def _add_blend_4f_unclamped(src, dst):
     return r + (r2 * a2), g + (g2 * a2), b + (b2 * a2), a
 
 # def arrow(x, y, size):
-#     gpu.state.blend_set('ALPHA')
+#     blend_set('ALPHA')
 #     shader = gpu.shader.from_builtin("2D_UNIFORM_COLOR")
 #     shader.bind()
 #     shader.uniform_float("color", (1.0, 1.0, 1.0, 0.4))
@@ -266,7 +262,7 @@ def _add_blend_4f_unclamped(src, dst):
 #     if color is None:
 #         color = 1.0, 1.0, 1.0, 1.0
 #     if color[3] < 1.0:
-#         gpu.state.blend_set('ALPHA')
+#         blend_set('ALPHA')
 
 
 #     shader = shcache[style]
