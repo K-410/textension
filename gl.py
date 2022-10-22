@@ -93,7 +93,7 @@ void main() {
 '''
 
 
-class ImmRectBase:
+class ImmRect:
     """Base for immediate-mode drawable rectangles"""
 
     matrix: Matrix
@@ -109,7 +109,6 @@ class ImmRectBase:
             shader_cache[vert, frag] = (
                 shader := GPUShader(vert, frag),
                    fmt := shader.format_calc())
-
         try:
             batch = batch_cache[shader]
         except KeyError:
@@ -119,7 +118,6 @@ class ImmRectBase:
             batch = batch_cache[shader] = GPUBatch(type='TRI_FAN', buf=vbo)
 
         self.blend_type = 'ALPHA'
-
         self.shader = shader
         self.batch = batch
 
@@ -154,7 +152,6 @@ class ImmRectBase:
             self.shader.uniform_float(attr, value)
         self.batch.draw(self.shader)
 
-
     def hit_test(self, x: int | float, y: int | float) -> bool:
         """Hit test this rectangle. Assumes x/y is region space."""
         x -= self._row1[3]
@@ -165,16 +162,16 @@ class ImmRectBase:
 
     @property
     def x2(self):
-        """Return the absolute x2 (x + width)"""
+        """x + width"""
         return self._row1[0] + self._row1[3]
 
     @property
     def y2(self):
-        """Return the absolute y2 (y + height)"""
+        """y + height"""
         return self._row2[1] + self._row2[3]
 
 
-class GLRoundedRect(ImmRectBase):
+class GLRoundedRect(ImmRect):
     """Rounded rectangle class"""
 
     def __init__(self, r=1.0, g=1.0, b=1.0, a=1.0):
@@ -188,11 +185,12 @@ class GLRoundedRect(ImmRectBase):
 
     def set_roundness(self, pixels: int):
         """Set the corner roundness in pixels"""
-        # TODO: Lower than 1.5px causes flickering. Shader needs tweaks.
+        # TODO: We need to clamp the radius to 1.5 because the shader doesn't
+        # TODO: handle lower values. Which means we can't get sharp edges.
         self.uniforms["r"] = max(1.5, pixels)
 
 
-class GLPlainRect(ImmRectBase):
+class GLPlainRect(ImmRect):
     """Plain rectangle class"""
 
     def __init__(self, r=1.0, g=1.0, b=1.0, a=1.0):
@@ -200,7 +198,7 @@ class GLPlainRect(ImmRectBase):
         self.set_background_color(r, g, b, a)
 
 
-class GLTexture(ImmRectBase):
+class GLTexture(ImmRect):
     def __init__(self, width, height):
         super().__init__(tex_vert, tex_frag)
         self.color_texture = GPUTexture((width, height), format='RGBA8')
@@ -218,10 +216,10 @@ class GLTexture(ImmRectBase):
 
     @contextmanager
     def bind(self):
-        vp = viewport_get()
+        vp = viewport_get()  # Read _before_ binding the framebuffer.
         self.color_texture.clear(format='FLOAT', value=(0.0, 0.0, 0.0, 0.0))
-        # FBOs are limited and potential memory leaks so we don't keep them
-        # around. Not particularly ideal, but at least FBO creation is cheap.
+        # FBOs aren't freed when guardedalloc runs on Blender exit, so we don't
+        # keep them around. Not ideal, but FBOs are at least cheap to make.
         with GPUFrameBuffer(color_slots=self.color_texture).bind():
             viewport_set(*vp)
             yield
