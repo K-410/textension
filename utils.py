@@ -170,8 +170,11 @@ def iadd_default(obj, key, default, value):
     return ivalue
 
 
-def defer(func, *args, delay=0.0, **kw):
-    bpy.app.timers.register(lambda: func(*args, **kw), first_interval=delay)
+def defer(fn, *args, delay=0.0, **kw):
+    def wrapper(fn=fn, args=args, kw=kw):
+        fn(*args, **kw)
+        return None
+    bpy.app.timers.register(wrapper, first_interval=delay)
 
 
 def setdefault(obj, key, value, get=False):
