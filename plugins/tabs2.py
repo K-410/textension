@@ -1,12 +1,12 @@
 import bpy
 import blf
-from .. import utils, gl, types
-from ..gl import _add_blend_4f_unclamped
+
+from textension import utils
+from textension.ui import gl
+from textension.utils import _system, _context
 from bpy.types import SpaceTextEditor
 
 
-system = utils.system
-import fnmatch
 class Tabs:
     last_seq: list[tuple[int, int, str]] = []
     st: SpaceTextEditor
@@ -18,22 +18,20 @@ class Tabs:
         self.x = 100
 
     def draw(self) -> None:
-        wu = system.wu
+        wu = _system.wu
         Tab.width = 100 * wu // 20
         Tab.padding = 10 * wu // 20
-        blf.size(0, self.font_size, int(system.pixel_size * system.dpi))
+        blf.size(0, self.font_size, int(_system.pixel_size * _system.dpi))
         offset = self.x
         for tab in self.validate_tabs():
             offset += tab.draw(self, offset) - 1
 
-    @types._inject_const(data=utils._data, tabs=tabs)
     def validate_tabs(self) -> list["Tab"]:
-        """Return a list of valid tab instances to draw
-        """
-        if [t.tab_index for t in "const data".texts] != self.last_seq:
-            "const tabs"[:] = [Tab(*args) for args in _validate_tabs()]
+        """Return a list of valid tab instances to draw"""
+        if [t.tab_index for t in bpy.data.texts] != self.last_seq:
+            self.tabs[:] = [Tab(*args) for args in _validate_tabs()]
             self.redraw_and_rebuild_cache(skip=self)
-        return "const tabs"
+        return self.tabs
 
     @classmethod
     def redraw_and_rebuild_cache(cls, skip: SpaceTextEditor = None) -> None:
@@ -58,7 +56,7 @@ class Tab:
     color_base:    tuple[float] = color_default
     color_mix:     tuple[float] = color_base
 
-    rect = gl.GLRoundedRect(0.3, 0.3, 0.3, 1.0)
+    rect = gl.Rect()
 
     active: bool = False
     hover: bool = False
@@ -73,20 +71,19 @@ class Tab:
         self.tab_index = tab_index
         self.text_index = text_index
 
-    @types._inject_const(dim=blf.dimensions, data=utils._data)
     def _compute(self, st: SpaceTextEditor):
-        if (label := "const data".texts[self.text_index].name) != self.cached_label:
+        if (label := bpy.data.texts[self.text_index].name) != self.cached_label:
             self.cached_label = label
             max_width = self.width - (self.padding * 2)
-            dots_width = "const dim"(0, "...")[0]
-            base_height = "const dim"(0, "A")[1]
-            if "const dim"(0, label)[0] > max_width:
+            dots_width = blf.dimensions(0, "...")[0]
+            base_height = blf.dimensions(0, "A")[1]
+            if blf.dimensions(0, label)[0] > max_width:
                 for i in range(1, len(label)):
-                    if "const dim"(0, label[:i])[0] + dots_width <= max_width:
+                    if blf.dimensions(0, label[:i])[0] + dots_width <= max_width:
                         continue
                     label = label[:max(1, i - 1)] + "..."
                     break
-            w = int("const dim"(0, label)[0])
+            w = int(blf.dimensions(0, label)[0])
             self.height = st.area.regions[0].height - 1
             x = (self.width  - w) // 2
             y = round((self.height - base_height) * 0.5)
@@ -108,7 +105,7 @@ class Tab:
 
     def on_enter(self):
         if not self.active:
-            self.color_mix = _add_blend_4f_unclamped(
+            self.color_mix = gl._add_blend_4f_unclamped(
                 self.color_base, self.color_hover)
 
     def on_leave(self):
@@ -120,12 +117,24 @@ class Tab:
     def on_deactivate(self):
         self.color_base = self.color_default
 
+@utils.factory
+def get_instance():
+    cache = {}
 
-get_instance = utils.spacetext_cache_factory(Tabs)
+    def get_instance(st):
+        try:
+            return cache[st]
+        except:  # Assume KeyError
+            if not utils.is_spacetext(st):
+                raise TypeError(f"Expected a SpaceTextEditor instance, got {st}")
+            return cache.setdefault(st, Tabs(st))
+
+    get_instance.clear: dict.clear = cache.clear
+    return get_instance
 
 
-def draw(context: bpy.types.Context):
-    st = context.space_data
+def draw_tabs():
+    st = _context.space_data
     tabs = get_instance(st)
     tabs.draw()
 
@@ -143,7 +152,9 @@ def _make_contiguous(seq):
     return seq
 
 
-@types._inject_const(last_seq=Tabs.last_seq, cached_seq=[])
+cached_seq = []
+
+
 def _validate_tabs() -> list[tuple[int, int]]:
     """Perform housekeeping of text tabs.
     Returns a copy of validated tab/text index pairs.
@@ -151,7 +162,7 @@ def _validate_tabs() -> list[tuple[int, int]]:
     # Compare sequences to see if tabs changed since last time.
     texts = bpy.data.texts
     current_sequence = [(t.tab_index) for t in texts]
-    if current_sequence != "const last_seq":
+    if current_sequence != Tabs.last_seq:
         new = []
         current = []
         for text_index, tab_index in enumerate(current_sequence):
@@ -161,11 +172,11 @@ def _validate_tabs() -> list[tuple[int, int]]:
                 current.append((tab_index, text_index))
         # Sort the list by the first element in the pair (tab_index), then
         # make it a solid, contiguous sequence from 0 to n.
-        "const cached_seq"[:] = _make_contiguous(sorted(current) + new)
+        cached_seq[:] = _make_contiguous(sorted(current) + new)
 
         # The compare sequence is sorted by text index
-        "const last_seq"[:] = [tab_index for tab_index, _ in sorted("const cached_seq", key=lambda x: x[1])]
-    return "const cached_seq"
+        Tabs.last_seq[:] = [tab_index for tab_index, _ in sorted(cached_seq, key=lambda x: x[1])]
+    return cached_seq
 
 
 def move_tab(from_index, to_index) -> None:
@@ -251,12 +262,12 @@ def enable():
     utils.watch_rna((bpy.types.PreferencesView, "ui_scale"), Tabs.invalidate)
 
     bpy.types.Text.tab_index = bpy.props.IntProperty(default=-1)
-    utils.add_draw_hook(draw, SpaceTextEditor, region='HEADER', args=utils._context)
+    utils.add_draw_hook(draw_tabs, region='HEADER')
     set_new_header_layout(True)
 
 
 def disable():
-    utils.remove_draw_hook(draw, region='HEADER')
+    utils.remove_draw_hook(draw_tabs, region='HEADER')
     utils.unwatch_rna(get_instance.clear)
     utils.unwatch_rna(Tabs.invalidate)
     set_new_header_layout(False)

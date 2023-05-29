@@ -4,26 +4,27 @@ from mathutils import Vector
 from itertools import chain
 from collections import deque
 import gpu
-from gpu.types import GPUVertBuf, GPUBatch
-from .. import utils
-from ..utils import prefs as p
+from gpu.types import GPUVertBuf, GPUBatch, GPUVertFormat
+from textension.utils import _context, _system
+from textension.prefs import get_prefs
+from textension import utils
 
+
+prefs: "TEXTENSION_PG_highlights" = None
 
 iterchain = chain.from_iterable
-prefs = None
+
+shader = from_builtin('2D_UNIFORM_COLOR')
+
+# Don't use shader.format_calc(), it's broken above 3.3.0.
+fmt = GPUVertFormat()
+fmt.attr_add(id="pos", comp_type="F32", len=2, fetch_mode="FLOAT")
 
 
-def _to_batch():
-    shader = from_builtin('2D_UNIFORM_COLOR')
-    sh_fmt = shader.format_calc()
-    uniform_float = shader.uniform_float
-    shader_bind = shader.bind
-
-    def to_batch_and_draw(type, coords):
-        vbo = GPUVertBuf(sh_fmt, len(coords))
-        vbo.attr_fill("pos", coords)
-        GPUBatch(type=type, buf=vbo).draw(shader)
-    return shader_bind, uniform_float, to_batch_and_draw
+def to_batch_and_draw(type, coords):
+    vbo = GPUVertBuf(fmt, len(coords))
+    vbo.attr_fill("pos", coords)
+    GPUBatch(type=type, buf=vbo).draw(shader)
 
 
 def get_matches_curl(substr, strlen, find, selr):
@@ -69,11 +70,6 @@ def to_scroll(lineh, pts, y_ofs):
             [(a + y1, b + y1, b + y1 + y2, a + y1 + y2) for a, b in pts]]),)
 
 
-def to_lines(lineh, pts, y_ofs):
-    y = Vector((0, y_ofs + (prefs.line_thickness // 2)))
-    return (*iterchain([(i + y, j + y) for i, j, _ in pts]),)
-
-
 def to_frames(lineh, pts, y_ofs):
     y1 = Vector((0, y_ofs))
     y2 = Vector((0, lineh + y_ofs - 1))
@@ -83,7 +79,7 @@ def to_frames(lineh, pts, y_ofs):
 
 
 # Find all occurrences and generate points to draw rects
-def get_non_wrapped_pts(context, st, substr, selr, lineh, wunits):
+def get_non_wrapped_pts(st, substr, selr, lineh, wunits):
     pts = []
     scrollpts = []
 
@@ -94,7 +90,7 @@ def get_non_wrapped_pts(context, st, substr, selr, lineh, wunits):
     strlen = len(substr)
     loc = st.region_location_from_cursor
 
-    region = context.region
+    region = _context.region
     rw, rh = region.width, region.height
     lh = st.runtime.lheight_px
 
@@ -227,7 +223,7 @@ def scrollpts_get(st, substr, wu, vspan_px, rw, rh, lineh):
     return scrollpts
 
 
-def get_wrapped_pts(context, st, substr, selr, lineh, wunits):
+def get_wrapped_pts(st, substr, selr, lineh, wunits):
     pts = []
     scrollpts = []
     text = st.text
@@ -241,7 +237,7 @@ def get_wrapped_pts(context, st, substr, selr, lineh, wunits):
     if st.show_line_numbers:
         x_offset += cw * (len(repr(len(lines))) + 2)
 
-    region = context.region
+    region = _context.region
     rh, rw = region.height, region.width
     # Maximum displayable characters in editor
     char_max = (rw - wunits - x_offset) // cw
@@ -363,15 +359,15 @@ def get_wrapped_pts(context, st, substr, selr, lineh, wunits):
     return pts, scrollpts, y_offset
 
 
-def coords_get(context, st, *args):
+def coords_get(st, *args):
     if st.show_word_wrap:
-        return get_wrapped_pts(context, st, *args)
-    return get_non_wrapped_pts(context, st, *args)
+        return get_wrapped_pts(st, *args)
+    return get_non_wrapped_pts(st, *args)
 
 
 # TODO Store batches for reuse and translate gpu.matrix instead
-def draw_match(context, system):
-    st = context.space_data
+def draw_match():
+    st = _context.space_data
     text = st.text
 
     # Nothing to draw.
@@ -391,74 +387,50 @@ def draw_match(context, system):
 
     if len(substr) >= prefs.minimum_length and curl == text.select_end_line:
         scroll_ofs = st.offsets.y
-        wunits = system.wu
+        wunits = _system.wu
         lheight = st.runtime.lheight_px
 
-        pts, scrollpts, offset = coords_get(context, st, substr, selr, lheight, wunits)
+        pts, scrollpts, offset = coords_get(st, substr, selr, lheight, wunits)
 
         gpu.state.blend_set('ADDITIVE')
-        shader_bind()
+        shader.bind()
 
         # Draw scroll highlights.
         if prefs.show_in_scrollbar:
-            uniform_float("color", tuple(prefs.color_scroll))
+            shader.uniform_float("color", tuple(prefs.color_scroll))
             to_batch_and_draw("TRIS", to_scroll(lheight, scrollpts, 2))
 
         # Draw solid background.
         if prefs.show_background:
-            uniform_float("color", prefs.color_background)
+            shader.uniform_float("color", prefs.color_background)
             to_batch_and_draw("TRIS", to_tris(lheight, pts, -offset + scroll_ofs))
 
         # Draw outline.
         if prefs.show_outline:
             gpu.state.line_width_set(prefs.outline_thickness)
-            uniform_float("color", tuple(prefs.color_line))
+            shader.uniform_float("color", tuple(prefs.color_line))
             to_batch_and_draw("LINES", to_frames(lheight, pts, -offset + scroll_ofs))
-
-        # Draw underlines.
-        elif prefs.show_underline:
-            gpu.state.line_width_set(prefs.line_thickness)
-            uniform_float("color", tuple(prefs.color_line))
-            to_batch_and_draw("LINES", to_lines(lheight, pts, -offset + scroll_ofs))
-
-
-def update_highlight(state):
-    from .. import utils
-
-    active = utils.ud.is_registered("matches")
-    redraw = active | state
-
-    if state and not active:
-        system = utils._context.preferences.system
-        utils.ud.add("matches", draw_match, (utils._context, system))
-    elif not state and active:
-        utils.ud.remove("matches")
-    if redraw:
-        utils.redraw_editors()
 
 
 # When outline is enabled, disable underline and vice versa.
-def update_lines(self, context, prop_idx):
-    update_lines.block = vars(update_lines).setdefault("block", False)
-    if not update_lines.block:
-        update_lines.block = True
+def update_lines(self, prop_idx):
         if prop_idx == 0:
             if self.show_outline:
                 self.show_underline = False
         elif prop_idx == 1:
             if self.show_underline:
                 self.show_outline = False
-        update_lines.block = False
 
 
-def update_colors(self, context):
+@utils.tag_userdef_modified_wrapper
+def update_colors(self, _):
     col_attrs = "color_background", "color_line", 'color_scroll'
     if self.color_preset != 'CUSTOM':
         for source, target in zip(self.colors[self.color_preset], col_attrs):
             setattr(self, target, source)
 
 
-class HighlightPrefs(bpy.types.PropertyGroup):
+class TEXTENSION_PG_highlights(bpy.types.PropertyGroup):
     # Color presets for highlights.
     colors = {
         "BLUE": ((0.2, 0.3, 0.4, 0.5), (0.2, 0.4, 0.6, 0.5), (0.1, 0.6, 1.0, 0.5)),
@@ -466,27 +438,19 @@ class HighlightPrefs(bpy.types.PropertyGroup):
         "GREEN": ((0.01, 0.21, 0.01, 1.0), (0.2, 0.5, 0.2, 1.0), (0.1, 1.0, 0.0, 0.4)),
         "RED": ((0.33, 0.08, 0.08, 1.0), (0.6, 0.3, 0.3, 1.0), (1.0, 0.2, 0.2, 0.5))}
 
-    line_thickness: bpy.props.IntProperty(
-        description="Underline thickness in pixels",
-        name="Underline Thickness",
-        default=2,
-        min=1,
-        max=4,
-        update=utils.prefs_modify_cb,
-    )
     outline_thickness: bpy.props.IntProperty(
         description="Frame thickness in pixels",
         name="Frame Thickness",
         default=1,
         min=1,
         max=4,
-        update=utils.prefs_modify_cb,
+        update=utils.tag_userdef_modified,
     )
     show_in_scrollbar: bpy.props.BoolProperty(
         description="Show match highlights in scrollbar",
         name="Show in Scrollbar",
         default=True,
-        update=utils.prefs_modify_cb,
+        update=utils.tag_userdef_modified,
     )
     minimum_length: bpy.props.IntProperty(
         description="Don't trigger highlights below this",
@@ -494,41 +458,33 @@ class HighlightPrefs(bpy.types.PropertyGroup):
         default=2,
         min=1,
         max=4,
-        update=utils.prefs_modify_cb,
+        update=utils.tag_userdef_modified,
     )
     case_sensitive: bpy.props.BoolProperty(
         description='Case Sensitive',
         name='Use Case Sensitive',
         default=False,
-        update=utils.prefs_modify_cb,
+        update=utils.tag_userdef_modified,
     )
     show_background: bpy.props.BoolProperty(
         description="Show background color",
         name="Show Background",
         default=True,
-        update=utils.prefs_modify_cb,
+        update=utils.tag_userdef_modified,
     )
     show_outline: bpy.props.BoolProperty(
         description="Show outline",
         name="Show Outline",
         default=False,
-        update=utils.pmodify_wrap(lambda s, c: update_lines(s, c, 0)),
+        update=utils.tag_userdef_modified,
     )
-    show_underline: bpy.props.BoolProperty(
-        description="Show underline color",
-        name="Show Underline",
-        default=False,
-        update=utils.pmodify_wrap(lambda s, c: update_lines(s, c, 1)),
-    )
-
     color_prop_kw = {
         'subtype': 'COLOR',
         'size': 4,
         'min': 0,
         'max': 1,
-        'update': utils.prefs_modify_cb
+        'update': utils.tag_userdef_modified
     }
-
     color_background: bpy.props.FloatVectorProperty(
         name='Background Color',
         description='Background color',
@@ -549,31 +505,12 @@ class HighlightPrefs(bpy.types.PropertyGroup):
     )
     color_preset: bpy.props.EnumProperty(
         description="Highlight color presets", name="Presets", default="BLUE",
-        update=utils.pmodify_wrap(update_colors),
+        update=update_colors,
         items=(("BLUE", "Blue", "", 1),
                ("YELLOW", "Yellow", "", 2),
                ("GREEN", "Green", "", 3),
                ("RED", "Red", "", 4),
                ("CUSTOM", "Custom", "", 5)))
-
-    del color_prop_kw
-
-    @classmethod
-    def setup(cls):
-        global shader_bind, uniform_float, to_batch_and_draw
-        shader_bind, uniform_float, to_batch_and_draw = _to_batch()
-
-        global prefs
-        prefs = p().highlights
-        bpy.types.TEXT_MT_view.append(draw_highlight_occurrences_menu)
-        update_highlight(True)
-
-    @classmethod
-    def remove(cls):
-        update_highlight(False)
-        bpy.types.TEXT_MT_view.remove(draw_highlight_occurrences_menu)
-        global shader_bind, uniform_float, to_batch_and_draw
-        del shader_bind, uniform_float, to_batch_and_draw
 
 
 def draw_settings(prefs, context, layout):
@@ -582,13 +519,11 @@ def draw_settings(prefs, context, layout):
     layout.prop(self, "case_sensitive")
     layout.prop(self, "minimum_length")
     layout.prop(self, "outline_thickness")
-    layout.prop(self, "line_thickness")
 
     layout.separator()
 
     layout.prop(self, "show_background")
     layout.prop(self, "show_outline")
-    layout.prop(self, "show_underline")
     layout.prop(self, "show_in_scrollbar")
 
     layout.separator()
@@ -615,24 +550,25 @@ def draw_settings(prefs, context, layout):
         layout.prop(self, "color_scroll")
 
 
-
-def draw_highlight_occurrences_menu(self, context):
-    self.layout.prop(prefs, "enable")
-
 def enable():
-    from ..utils import register_class
-    register_class(HighlightPrefs)
-    prefs = p()
-    type(prefs).highlights = bpy.props.PointerProperty(type=HighlightPrefs)
-    HighlightPrefs.setup()
+    from textension.utils import register_class
+    from textension.prefs import add_settings
+
+    register_class(TEXTENSION_PG_highlights)
+
+    global prefs
+    prefs = add_settings(TEXTENSION_PG_highlights)
+
+    utils.add_draw_hook(draw_match)
+
 
 def disable():
-    prefs = p()
-    from ..utils import unregister_class
-    unregister_class(type(prefs.highlights))
-    
-    # Unregister occurrence highlights.
-    if prefs.highlights is not None:
-        type(prefs.highlights).remove()
+    from textension.utils import unregister_class
+    from textension.prefs import remove_settings
 
-    del type(prefs).highlights
+    unregister_class(TEXTENSION_PG_highlights)
+    remove_settings(TEXTENSION_PG_highlights)
+    
+    global prefs
+    prefs = None
+    utils.remove_draw_hook(draw_match)

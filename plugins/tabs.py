@@ -1,12 +1,12 @@
 import bpy
-from .. import utils, types
+from textension import utils
+from textension.ui.gl import Rect
+from textension.utils import _context, _system, TextOperator
+from textension.prefs import get_prefs
+
+from textension.btypes import uiPopupMenu
 import blf
-from ..gl import GLPlainRect, GLRoundedRect
-from ..utils import prefs, _context
-# from .c_utils import _uiblock_from_region
-from ..c_utils import uiPopupMenu
-from ..c_utils import ScrArea
-from time import perf_counter
+
 
 UI_BLOCK_MOVEMOUSE_QUIT = 128
 # UI_BLOCK_KEEP_OPEN = 1 << 8
@@ -17,9 +17,8 @@ UI_BTYPE_TAB = 16 << 9  # 8192 UILayout tab button identifier.
 UI_BTYPE_BUT_MENU = 5 << 9
 UI_BTYPE_PULLDOWN = 27 << 9
 as_pointer = bpy.types.bpy_struct.as_pointer
-system = bpy.utils._preferences.system
-source_rect = GLPlainRect(0.23, 0.23, 0.23, 0.8)
-target_rect = GLPlainRect(0.73, 0.73, 0.73, 0.2)
+source_rect = Rect()
+target_rect = Rect()
 
 
 def redraw_regions_safe(regions):
@@ -88,14 +87,14 @@ class Tabs:
     def __init__(self):
 
         # TODO: Tab colors are hardcoded for now. Should be customizable.
-        self.tabrect = GLRoundedRect(0.23, 0.23, 0.23, 1.0)
-        self.actrect = GLPlainRect(0.6, 0.6, 0.6, 1.0)
-        self.hovrect = GLPlainRect(0.3, 0.5, 0.8, 0.15)
+        self.tabrect = Rect(0.23, 0.23, 0.23, 1.0)
+        self.actrect = Rect(0.6, 0.6, 0.6, 1.0)
+        self.hovrect = Rect(0.3, 0.5, 0.8, 0.15)
 
         self.tabrect.set_border_color(0.14, 0.14, 0.14, 1.0)
         self.tabrect.set_roundness(2)
 
-        self.wu = system.wu
+        self.wu = _system.wu
         self.acth = 2 * (self.wu * 0.05)  # Active tab decorator height.
         self.pad_init = 20
 
@@ -105,7 +104,7 @@ class Tabs:
         self.indices_prev = [None]          # List of previous indices
         self.labels_prev = [None]           # List of previous labels
         self.hover_active = None            # Global hover flag
-        self.hover = types.defdict_item()   # A default dict with None as fallback
+        self.hover = extras.defdict_item()   # A default dict with None as fallback
         self.data = TabsData()
         self.width = 0                      # Width of all tabs in pixels
         self.offsx_prev = 0                 # Previous view2d offset
@@ -489,13 +488,14 @@ class SCREEN_MT_region_context_menu_py(bpy.types.Menu):
 
 
 # Close tab operator.
-class TEXTENSION_OT_close_tab(types.TextOperator):
+# Does not inherit from TextOperator because it unlinks a text.
+class TEXTENSION_OT_close_tab(bpy.types.Operator):
     bl_idname = "textension.close_tab"
     bl_label = "Close"
     bl_options = {'REGISTER', 'UNDO'}
 
     type: bpy.props.StringProperty()
-    poll = classmethod(poll_edit_text)
+    poll = utils.text_poll
 
     @classmethod
     def description(cls, context, operator):
@@ -518,7 +518,7 @@ class TEXTENSION_OT_close_tab(types.TextOperator):
         return {'FINISHED'}
 
 
-class TEXTENSION_OT_tab_context_menu(types.TextOperator):
+class TEXTENSION_OT_tab_context_menu(TextOperator):
 
     @classmethod
     def poll(cls, context):
@@ -636,7 +636,7 @@ class TEXTENSION_OT_tab_context_menu(types.TextOperator):
         km_utils.kmi_new('RIGHTMOUSE', note="HIDDEN")
 
 
-class TEXTENSION_OT_move_tab(types.TextOperator):
+class TEXTENSION_OT_move_tab(TextOperator):
     type: bpy.props.StringProperty()
 
     @classmethod
@@ -687,7 +687,10 @@ def remove_get_next_tab(name):
     return t_next
 
 
-class TEXTENSION_OT_tab_operation(types.TextOperator):
+# Does not inherit from TextOperator because it unlinks a text.
+class TEXTENSION_OT_tab_operation(bpy.types.Operator):
+    bl_label = "Tab Operation"
+    bl_idname = "textension.tab_operation"
     bl_options = {'REGISTER', 'UNDO'}
     skip_events = {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE', 'TIMER', 'EVT_TWEAK_L',
                    'TIMER_REPORT'}
@@ -910,38 +913,38 @@ class TEXTENSION_PG_tabs(bpy.types.PropertyGroup):
         description="Enable to use tabs in the text editor",
         name="Tabs and Header",
         default=True,
-        update=utils.pmodify_wrap(set_header_draw),
+        update=utils.tag_userdef_modified_wrapper(set_header_draw),
     )
     fit_to_region: BoolProperty(
         description="Fit tabs to region width.\n"
         "Run Script button will be moved to the left",
         name="Fit tabs to region",
         default=False,
-        update=utils.pmodify_wrap(lambda s, c: s._run_script_button_upd(2)),
+        update=utils.tag_userdef_modified_wrapper(lambda s, c: s._run_script_button_upd(2)),
     )
     drag_to_reorder: BoolProperty(
         description="Enable tab reordering by dragging them",
         name="Drag to Reorder",
         default=True,
-        update=utils.prefs_modify_cb,
+        update=utils.tag_userdef_modified,
     )
     mmb_close: BoolProperty(
         description="Close tabs using middle mouse button",
         name="Middle Mouse Close",
         default=True,
-        update=utils.prefs_modify_cb,
+        update=utils.tag_userdef_modified,
     )
     double_click_new: BoolProperty(
         description="Double click empty area to add new tab",
         name="Double-click New Tab",
         default=True,
-        update=utils.prefs_modify_cb,
+        update=utils.tag_userdef_modified,
     )
     use_large_tabs: BoolProperty(
         description="Use large tabs",
         name="Use Large Tabs",
         default=True,
-        update=utils.prefs_modify_cb,
+        update=utils.tag_userdef_modified,
     )
 
     def _run_script_button_upd(self, btn):
@@ -993,7 +996,7 @@ class TEXTENSION_PG_tabs(bpy.types.PropertyGroup):
         description="Use embossed button",
         name="Emboss",
         default=True,
-        update=utils.prefs_modify_cb,
+        update=utils.tag_userdef_modified,
     )
     del BoolProperty, EnumProperty
 
@@ -1082,18 +1085,18 @@ def disable():
 def on_leave():
     tabs.hover_clear()
 
-def test_tabs(data: types.HitTestData):
-    # Test against tabs
-    if data.prefs.tabs.show_tabs:
-        region = data.region
-        mrx, mry = data.pos
-        for label, rect, _ in tabs.data[region]:
-            if isect_rect(mrx, mry, rect):
-                if tabs.hover[region] != label:
-                    tabs.hover_set(region, label)
-                utils.set_hittest_fail_hook(on_leave)
-                bpy.context.window.cursor_set("DEFAULT")
-                return True
-        else:
-            if tabs.hover_active:
-                tabs.hover_clear()
+# def test_tabs(data: extras.HitTestData):
+#     # Test against tabs
+#     if data.prefs.tabs.show_tabs:
+#         region = data.region
+#         mrx, mry = data.pos
+#         for label, rect, _ in tabs.data[region]:
+#             if isect_rect(mrx, mry, rect):
+#                 if tabs.hover[region] != label:
+#                     tabs.hover_set(region, label)
+#                 utils.set_hittest_fail_hook(on_leave)
+#                 bpy.context.window.cursor_set("DEFAULT")
+#                 return True
+#         else:
+#             if tabs.hover_active:
+#                 tabs.hover_clear()

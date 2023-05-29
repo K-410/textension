@@ -1,316 +1,232 @@
-import bpy
-from . import types
-from .types import UnifiedDraw, logger as log, TextUndo, Callable
+# NOTE: This module must be importable by any submodule.
+# NOTE: Do not import stuff from this package at module level.
+
+
+import operator
 import ctypes
-from bpy.types import PropertyGroup
-from bpy.props import CollectionProperty, BoolProperty, StringProperty,\
-    IntProperty, EnumProperty, FloatProperty
-import sys
-from io import StringIO
+import types
+import bpy
 
+try:
+    from _ctypes import CFuncPtr
+except:
+    from typing import Any as CFuncPtr
 
-# The real context
-from _bpy import (context as _context,
-                  data as _data)
+from _bpy import context as _context
+from bpy.utils import register_class, unregister_class
+from typing import Callable
+from types import CellType, FunctionType
 
-# RNA subscription owner
-SUBSCRIBE_OWNER = hash(__package__)
-system = _context.preferences.system
-log = log()
+from sys import _getframe
+from time import monotonic
 
+_system = bpy.context.preferences.system
 
-class Flag:
-    _init_state = False
-    _state = False
-    _is_set = False
+_call = bpy.ops._op_call
 
-    def __init__(self, init_state=False):
-        self._init_state = self._state = init_state
+_editors: dict[str: dict] = {}
 
-    def set(self):
-        assert not self._is_set, "Flag already set"
-        self._state = not self._init_state
-        self._is_set = True
-
-    def reset(self):
-        self._state = self._init_state
-        self._is_set = False
-
-    def __bool__(self):
-        return self._is_set
-
-def get_caller_module(level):
-    """
-    Return the module this function was called from.
-    """
-    return sys.modules.get(sys._getframe(level).f_globals["__name__"])
-
-def this_module():
-    """
-    Returns the module of the caller.
-    """
-    return sys.modules.get(sys._getframe(1).f_globals["__name__"])
-
+_region_types = set(bpy.types.Region.bl_rna.properties['type'].enum_items.keys())
 
 _rna_hooks: dict[tuple, list[tuple[Callable, tuple]]] = {}
-def on_rna_changed(key):
-    assert key in _rna_hooks
-    for func, args in _rna_hooks[key]:
-        func(*args)
 
-def watch_rna(key, notify: Callable, args=()):
-    if not (hooks := _rna_hooks.setdefault(key, [])):
-        bpy.msgbus.subscribe_rna(key=key, owner=key, args=(key,), notify=on_rna_changed)
-    hooks.append((notify, args))
+# All possible cursors to pass Window.set_cursor()
+bl_cursor_types = set(bpy.types.Operator.bl_rna.properties['bl_cursor_pending'].enum_items.keys())
 
+is_text = bpy.types.Text.__instancecheck__
+is_spacetext = bpy.types.SpaceTextEditor.__instancecheck__
+is_operator = bpy.types.Operator.__instancecheck__
+is_operator_subclass = bpy.types.Operator.__subclasscheck__
+is_module = types.ModuleType.__instancecheck__
+is_builtin = types.BuiltinFunctionType.__instancecheck__
+is_method = types.MethodType.__instancecheck__
+is_function = types.FunctionType.__instancecheck__
+is_class = lambda cls: cls.__class__ is type
+is_bpyapp = type(bpy.app).__instancecheck__
+is_bpystruct = bpy.types.bpy_struct.__instancecheck__
+is_str = str.__instancecheck__
+is_tuple = tuple.__instancecheck__
+is_list = list.__instancecheck__
 
-def unwatch_rna(notify: Callable):
-    """Remove a callback from rna watch.
-    """
-    for key, hooks in list(_rna_hooks.items()):
-        for func, args in hooks:
-            if func == notify:
-                hooks.remove((func, args))
-                break
-        if not hooks:
-            bpy.msgbus.clear_by_owner(key)
-            del _rna_hooks[key]
+noop = None.__init__
+noop_noargs = None.__init_subclass__
 
+PyInstanceMethod_New = ctypes.pythonapi.PyInstanceMethod_New
+PyInstanceMethod_New.argtypes = (ctypes.py_object,)
+PyInstanceMethod_New.restype = ctypes.py_object
 
-
-def register_class(cls):
-    bpy.utils.register_class(cls)
-    log("REG", cls.__name__)
-
-
-def unregister_class(cls):
-    bpy.utils.unregister_class(cls)
-    log("UNREG", cls.__name__)
+PyFunction_SetClosure = ctypes.pythonapi.PyFunction_SetClosure
+PyFunction_SetClosure.argtypes = ctypes.py_object, ctypes.py_object
+PyFunction_SetClosure.restype = ctypes.c_int
 
 
-def register_class_iter(classes):
-    for cls_ in classes:
-        register_class(cls_)
+def is_methoddescriptor(obj):
+    if hasattr(obj, "__get__"):
+        if not hasattr(obj, "__set__"):
+            if not is_class(obj):
+                if not is_method(obj):
+                    return not is_function(obj)
+    return False
 
 
-def unregister_class_iter(classes):
-    for cls_ in classes:
-        unregister_class(cls_)
+def safe_redraw():
+    try:
+        _context.region.tag_redraw()
+    except AttributeError:
+        pass
 
 
-def clamp(val, a, b):
-    if val < a:
-        return a
-    elif val > b:
-        return b
-    return val
+# This just ensures tracebacks in the decoratee propagate to stderr.
+def unsuppress(func, sentinel=object()):
+    def wrapper(*args, **kw):
+        ret = sentinel
+        try:
+            ret = func(*args, **kw)
+        finally:
+            if ret is sentinel:
+                import traceback
+                traceback.print_exc()
+        return ret
+    return wrapper
 
 
-def clamp_factory(lower, upper):
-    def inner(val, a=lower, b=upper):
-        if val < a:
-            return a
-        elif val > b:
-            return b
-        return val
+def classproperty(func):
+    return classmethod(property(func))
+
+
+def factory(func):
+    args = (None,) * func.__code__.co_argcount
+    return func(*args)
+
+
+def _descriptor(func, setter=None):
+    return property(PyInstanceMethod_New(func), setter)
+
+
+def _forwarder(string: str):
+    return _descriptor(operator.attrgetter(string))
+
+
+def _named_index(*indices: tuple[int]):
+    return _descriptor(operator.itemgetter(*indices))
+
+
+def _check_type(obj, *types):
+    if not isinstance(obj, types):
+        # Check the class also.
+        if not (isinstance(obj, type) and issubclass(obj, types)):
+            raise TypeError(f"Expected {types}, got {type(obj)}")
+
+
+def close_cells(*args):
+    """Close ``args`` over a function."""
+    import ctypes
+    from types import CellType
+    def inner(func, args=args):
+        ctypes.pythonapi.PyFunction_SetClosure(func, tuple(map(CellType, args)))
+        return func
     return inner
 
 
-# Linear value to srgb. Assumes a 0-1 range.
-def lin2srgb(lin):
-    if lin > 0.0031308:
-        return 1.055 * (lin ** (1.0 / 2.4)) - 0.055
-    return 12.92 * lin
+def test_and_update(obj, attr, value) -> bool:
+    if getattr(obj, attr) != value:
+        setattr(obj, attr, value)
+        return True
+    return False
 
 
-def get_scrollbar_x_points(region_width):
-    """
-    Given a region width in pixels, return the x1 and x2 points
-    of the scrollbar.
-    """
-    widget_unit = system.wu
-    sx_2 = int(region_width - 0.2 * widget_unit)
-    sx_1 = sx_2 - int(0.4 * widget_unit) + 2
-    return sx_1, sx_2
+def defer(callable, *args, delay=0.0, persistent=True, **kw):
+    def wrapper(callable=callable, args=args, kw=kw):
+        try:
+            callable(*args, **kw)
+        finally:
+            return None
+
+    bpy.app.timers.register(wrapper, first_interval=delay, persistent=persistent)
 
 
-def renum(iterable, len=len, zip=zip, range=range, reversed=reversed):
-    """
-    Reversed enumerator starting at the size of the iterable and decreasing.
-    """
-    lenit = len(iterable)
-    start = lenit - 1
-    return zip(range(start, start - lenit, -1), reversed(iterable))
-
-
-# Default argument is bound when TextensionPreferences is registered.
-def prefs(preferences=None):
-    return preferences
-
-
-def to_bpy_float(value):
-    return ctypes.c_float(value).value
-
-
-def serialize_factory():
-    """Store kmi data as string."""
-    from json import dumps, loads
-    from operator import attrgetter
-    getattrs = attrgetter("type", "value", "alt", "ctrl", "shift",
-                          "any", "key_modifier", "oskey", "active")
-
-    return (lambda kmi: dumps(getattrs(kmi)),
-            lambda string: tuple(loads(string)))
-
-
-def iadd_default(obj, key, default, value):
-    """In-place addition with a default value."""
-    ivalue = getattr(obj, key, default) + value
-    setattr(obj, key, ivalue)
-    return ivalue
-
-
-def defer(fn, *args, delay=0.0, **kw):
-    def wrapper(fn=fn, args=args, kw=kw):
-        fn(*args, **kw)
-        return None
-    bpy.app.timers.register(wrapper, first_interval=delay)
-
-
-def setdefault(obj, key, value, get=False):
-    """
-    Simple utility to set a default attribute on any object.
-    """
-    if get:
-        if not hasattr(obj, key):
-            setattr(obj, key, value)
-        return obj
-
-    try:
-        return getattr(obj, key)
-    except AttributeError:
-        setattr(obj, key, value)
-        return value
-
-
-def tabs_to_spaces(string, tab_width):
-    while "\t" in string:
-        tmp = " " * (tab_width - string.find("\t") % tab_width)
-        string = string.replace("\t", tmp, 1)
-    return string
-
-
-def setdef(obj, attr, val):
-    currval = getattr(obj, attr, Ellipsis)
-    if currval is Ellipsis:
-        setattr(obj, attr, val)
-        return val
-    return currval
-
-
-def prefs_modify_cb(self, context):
-    prefs_modified_set()
-
-
-def prefs_modified_set(prefs=bpy.context.preferences):
-    if not prefs.is_dirty:
-        prefs.is_dirty = True
-
-
-def pmodify_wrap(func):
-    def wrap(self, context, *args, **kwargs):
-        ret = func(self, context, *args, **kwargs)
-        prefs_modified_set()
-        return ret
-    return wrap
-
-
-@types._inject_const(context=_context)
-def iter_areas(area_type='TEXT_EDITOR'):
-    for window in "const context".window_manager.windows:
-        for area in window.screen.areas:
-            if area.type == area_type:
-                yield area
-
-
-def iter_regions(area_type='TEXT_EDITOR', region_type='WINDOW'):
-    for area in iter_areas(area_type):
-        for region in area.regions:
-            if region.type == region_type:
-                yield region
-
-
-def iter_spaces(space_type='TEXT_EDITOR'):
-    for area in iter_areas(space_type):
-        yield area.spaces.active
-
-
-def redraw_editors(area='TEXT_EDITOR', region_type='WINDOW'):
-    for region in iter_regions(area, region_type):
-        region.tag_redraw()
-
-
-def area_from_space_data(st):
-    for area in st.id_data.areas:
-        if area.spaces[0] == st:
-            return area
-
-def region_from_space_data(st, region_type='WINDOW'):
-    for region in area_from_space_data(st).regions:
-        if region.type == region_type:
-            return region
+def register_classes(classes):
+    for cls in classes:
+        register_class(cls)
 
 
 
-def window_from_region(region: bpy.types.Region):
-    for win in _context.window_manager.windows:
-        if win.screen == region.id_data:
-            return win
+def unregister_classes(classes):
+    for cls in reversed(classes):
+        unregister_class(cls)
 
 
-_region_types = set(
-    bpy.types.Region.bl_rna.properties['type'].enum_items.keys())
-_editors: dict[str: dict] = {}
+def km_def(km: str, km_type: str, km_value: str, **kw):
+    # This assumes km_def is called from the class' suite.
+    km_meta = _getframe(1).f_locals.setdefault("__km__", [])
+
+    # Keyword args for kmi.new()
+    kmi_new_kw = {}
+    for key in ("ctrl", "alt", "shift", "repeat", "head"):
+        kmi_new_kw[key] = kw.pop(key, False)
+
+    km_meta.append((km, km_type, km_value, kmi_new_kw, kw))
 
 
-def add_draw_hook(fn: Callable, space: bpy.types.Space, args: tuple=(), *, 
-                  region: str='WINDOW', type: str='POST_PIXEL'):
-    """
-    Add a draw callback as a hook.
-    """
+# Not sure how to get this via RNA.
+space_map = {
+    "CLIP_EDITOR":      bpy.types.SpaceClipEditor,
+    "CONSOLE":          bpy.types.SpaceConsole,
+    "DOPESHEET_EDITOR": bpy.types.SpaceDopeSheetEditor,
+    "FILE_BROWSER":     bpy.types.SpaceFileBrowser,
+    "GRAPH_EDITOR":     bpy.types.SpaceGraphEditor,
+    "IMAGE_EDITOR":     bpy.types.SpaceImageEditor,
+    "INFO":             bpy.types.SpaceInfo,
+    "NLA_EDITOR":       bpy.types.SpaceNLA,
+    "NODE_EDITOR":      bpy.types.SpaceNodeEditor,
+    "OUTLINER":         bpy.types.SpaceOutliner,
+    "PREFERENCES":      bpy.types.SpacePreferences,
+    "PROPERTIES":       bpy.types.SpaceProperties,
+    "SEQUENCE_EDITOR":  bpy.types.SpaceSequenceEditor,
+    "SPREADSHEET":      bpy.types.SpaceSpreadsheet,
+    "TEXT_EDITOR":      bpy.types.SpaceTextEditor,
+    "VIEW_3D":          bpy.types.SpaceView3D,
+}
+
+
+def add_draw_hook(
+        hook:   Callable,
+        args:   tuple = (),
+        space:  str = 'TEXT_EDITOR',
+        region: str = 'WINDOW',
+        type:   str = 'POST_PIXEL'):
+
     if not isinstance(args, tuple):
         args = (args,)
 
-    assert isinstance(space, bpy.types.Space) or \
-           issubclass(space, bpy.types.Space), f"Bad space, got {repr(space)}"
-    # Not bulletproof. Some spaces don't have certain regions.
-    assert region in _region_types, f"Bad region type: {repr(region)}"
+    assert all(map(str.__instancecheck__, (space, region, type)))
+    space_type = space_map.get(space)
 
-    # Ensure arguments are bound reducing call overhead by 5%.
-    # This unfortunately modifies 'fn', but the alternative (copy)
-    # has a performance penalty and is unacceptable.
-    if args and fn.__defaults__ is None:
-        assert fn.__code__.co_argcount == len(args)
-        fn.__defaults__ = args
-    regions = _editors.setdefault(space, {})
+    _check_type(hook, FunctionType)
+    _check_type(space_type, bpy.types.Space)
+
+    if args and hook.__defaults__ is None:
+        hook.__defaults__ = args
+
+    regions = _editors.setdefault(space_type, {})
 
     if region not in regions:
         # Region is new - register a region draw callback.
-        hooks = [fn]
-        def draw(hooks=hooks):
-            for func in hooks:
-                func()
-        handle = space.draw_handler_add(draw, (), region, type)
+        hooks = [hook]
+
+        @close_cells(hooks)
+        def region_draw_handler():
+            for draw_callback in hooks:
+                draw_callback()
+
+        handle = space_type.draw_handler_add(region_draw_handler, (), region, type)
         regions[region] = (handle, hooks)
 
     else:
-        regions[region][1].append(fn)
+        regions[region][1].append(hook)
 
-def remove_draw_hook(fn: Callable, *, region: str='WINDOW'):
-    """
-    Remove a draw hook. Returns whether it was removed successfully.
-    When the last hook is removed, the region callback is also removed.
-    """
+
+def remove_draw_hook(fn: Callable, region: str='WINDOW'):
     found = False
 
     for space, regions in list(_editors.items()):
@@ -326,718 +242,406 @@ def remove_draw_hook(fn: Callable, *, region: str='WINDOW'):
                 del _editors[space]
         if found:
             break
+    if not found:
+        raise RuntimeError(f"'{fn.__name__}' not a registered hook")
     return found
 
 
-def spacetext_cache_factory(cls):
-    from .types import is_spacetext
-
-    @types._inject_const(cache=(const_cache := {}), cls=cls, is_spacetext=is_spacetext)
-    def instance_from_space(st: is_spacetext.__self__) -> cls:
-        try:
-            return "const cache"[st]
-        except:  # Assume KeyError
-            if not "const is_spacetext"(st):
-                raise TypeError(f"Expected a SpaceTextEditor instance, got {st}")
-            return "const cache".setdefault(st, "const cls"(st))
-    instance_from_space.clear: dict.clear = const_cache.clear
-    return instance_from_space
-
-# Cache dict with its __missing__ set to "func". "args" is used by "func" and
-# is changed by calling "params_set", which invalidates the cache.
-def defcache(func, *args, fwd=False, unpack=False):
-    all_caches = setdef(defcache, "all_caches", [])
-    if unpack:
-        def fallback(self, key, args=args):
-            self[key] = func(*key, *args)
-            return self[key]
-    else:
-        def fallback(self, key, args=args):
-            self[key] = func(key, *args)
-            return self[key]
-
-    class Cache(dict):
-        __missing__ = fallback
-        @staticmethod
-        def params_set(*args):
-            clear()
-            fallback.__defaults__ = (args,)
-    cache = Cache()
-    clear = cache.clear
-
-    if fwd:
-        if not isinstance(args, tuple):
-            args = (args,)
-        args += (cache,)
-
-    cache.params_set(*args)
-    all_caches.append(cache)
-    return cache
+def unwatch_rna(notify: Callable):
+    """Remove a callback from rna watch."""
+    for key, hooks in list(_rna_hooks.items()):
+        for callback, args in hooks:
+            if callback == notify:
+                hooks.remove((callback, args))
+                break
+        if not hooks:
+            bpy.msgbus.clear_by_owner(key)
+            del _rna_hooks[key]
 
 
-def push_undo(text: bpy.types.Text):
-    return TextUndo(text).push_undo()
+def on_rna_changed(key):
+    for func, args in _rna_hooks[key]:
+        func(*args)
 
 
-def tag_modified(operator: bpy.types.Operator):
+def watch_rna(key, notify: Callable, args=()):
+    if not (hooks := _rna_hooks.setdefault(key, [])):
+        bpy.msgbus.subscribe_rna(key=key, owner=key, args=(key,), notify=on_rna_changed)
+    hooks.append((notify, args))
+
+
+# A wrapper version of 'tag_userdef_modified'.
+def tag_userdef_modified_wrapper(func):
+    def wrap(self, context, *args, **kwargs):
+        ret = func(self, context, *args, **kwargs)
+        context.preferences.is_dirty = True
+        return ret
+    return wrap
+
+
+# A property update callback that sets the user preferences dirty.
+def tag_userdef_modified(self, context):
+    context.preferences.is_dirty = True
+
+
+def clamp_factory(lower, upper):
+    def inner(val, a=lower, b=upper):
+        if val < a:
+            return a
+        elif val > b:
+            return b
+        return val
+    return inner
+
+
+def get_scrollbar_x_points(region_width):
+    """Given a region width in pixels, return the x1 and x2 points
+    of the scrollbar.
     """
-    Calling this ensures that Textension operators that use TextUndo tags
-    the blend file as dirty.
-    """
-    if not bpy.data.is_dirty:
-        bpy.ops.ed.undo_push(message=operator.bl_label)
+    widget_unit = _system.wu
+    sx_2 = int(region_width - 0.2 * widget_unit)
+    sx_1 = sx_2 - int(0.4 * widget_unit) + 2
+    return sx_1, sx_2
 
 
-def _redraw_now() -> None:
-    """
-    Redraw immediately. Only use when the alternative isn't acceptable.
-    """
-    stdout = sys.stdout
-    sys.stdout = StringIO()
-    try:
-        bpy.ops.wm.redraw_timer(iterations=1)
-    finally:
-        sys.stdout = stdout
+def iter_areas(area_type='TEXT_EDITOR'):
+    for area in chain.from_iterable(map(get_areas_from_window, _context.window_manager.windows)):
+        if area.type == area_type:
+            yield area
+
+
+def iter_regions(area_type='TEXT_EDITOR', region_type='WINDOW'):
+    for region in chain.from_iterable(map(get_regions_from_area, iter_areas(area_type))):
+        if region.type == region_type:
+            yield region
+
+
+def iter_spaces(space_type='TEXT_EDITOR'):
+    yield from map(get_space_from_area, iter_areas(space_type))
+
+
+def redraw_editors(area='TEXT_EDITOR', region_type='WINDOW'):
+    any(map(tag_redraw, iter_regions(area, region_type)))
+
+
+from operator import methodcaller, attrgetter
+from itertools import compress, chain
+
+get_id = attrgetter("id")
+
+get_space_from_area = attrgetter("spaces.active")
+get_areas_from_window = attrgetter("screen.areas")
+get_regions_from_area = attrgetter("regions")
+tag_redraw = methodcaller("tag_redraw")
+
+
+def text_from_id(text_id: int):
+    if isinstance(text_id, int):
+        selectors = map(text_id.__eq__, map(get_id, bpy.data.texts))
+        return next(compress(bpy.data.texts, selectors), None)
     return None
 
-def add_hittest(func: Callable, region: str="WINDOW"):
-    from . import TEXTENSION_OT_hit_test
-    TEXTENSION_OT_hit_test.hooks[region].append(func)
 
-def remove_hittest(func: Callable, region: str="WINDOW"):
-    from . import TEXTENSION_OT_hit_test
-    TEXTENSION_OT_hit_test.hooks[region].remove(func)
-
-def hit_test(context):
-    from . import TEXTENSION_OT_hit_test
-    return TEXTENSION_OT_hit_test.hit_test(context)
-
-def set_hittest_fail_hook(func):
-    from . import TEXTENSION_OT_hit_test
-    if func not in TEXTENSION_OT_hit_test.fail_hooks:
-        TEXTENSION_OT_hit_test.fail_hooks.append(func)
-    
-# from time import perf_counter
-# def _isect_check():
-#     # from .scrollbar import thumb_vpos_calc
-#     from bpy.types import SpaceTextEditor
-
-#     # TODO: 3.0 workaround
-#     # from .tabs import Tabs, isect_rect
-#     # tabs = Tabs()
-#     # TODO END
-
-#     # hover_clear = tabs.hover_clear
-
-#     # def scrollbar_test(context, x, y):
-#     #     # Inside scrollbar?
-#     #     # if not p.scrollbar.show_scrollbar:
-#     #     #     return
-#     #     region = context.region
-#     #     h = region.height
-#     #     w = region.width
-#     #     wu = system.wu
-#     #     wu_norm = wu * 0.05
-
-#     #     # Test the scrollbar (horizontal intersection)
-#     #     if w - int(wu - wu_norm) - 2 <= x:
-
-#     #         # Test the sidebar toggle
-#     #         ui = context.area.regions[2]
-#     #         if ui.alignment == 'RIGHT' and ui.width == 1:
-#     #             if x >= w - int(wu * 0.4) - 1 and x <= w:
-#     #                 if y >= h - int(wu * 1.4) - 1:
-#     #                     if y <= h - int(wu * 0.8 - wu_norm):
-#     #                         return "AZONE"
-
-#     #         # Test the scrollbar (vertical intersection)
-#     #         if x <= w - 2 and y <= h and y >= 0:
-#     #             ymin, ymax = thumb_vpos_calc(h, context.space_data)
-#     #             if ymin > -1:
-#     #                 if ymin <= y:
-#     #                     if y <= ymax:
-#     #                         return "THUMB"
-#     #                     return "UP"
-#     #                 return "DOWN"
-
-#     # def test_line_numbers(context, x, y):
-#     #     st = context.space_data
-#     #     rh = context.region.height
-#     #     if st.show_line_numbers:
-#     #         if p.use_line_number_select:
-#     #             if x <= st.lpad_px - (st.drawcache.cwidth_px + b"\n")[0]:
-#     #                 if x >= 1 and y <= rh and y >= 0:
-#     #                     return "LNUM"
-
-#     # def test_tabs(context, x, y):
-#     #     region = context.region
-#     #     if p.tabs.show_tabs:
-#     #         if region.type == 'HEADER':
-#     #             for label, (x1, y1, x2, y2), _ in tabs.data[region]:
-#     #                 if x1 <= x and x <= x2 and y1 <= y and y <= y2:
-#     #                     if tabs.hover[region] != label:
-#     #                         tabs.hover_set(region, label)
-#     #                     return
-#     #             hover_clear()
-
-#     def inner(context, mpos):
-#         st = context.space_data
-#         if not isinstance(st, SpaceTextEditor):
-#             # hover_clear()
-#             return
-
-#         region = context.region
-#         region_type = region.type
-#         x = mpos[0] - region.x
-#         y = mpos[1] - region.y
-#         rh = region.height
-#         p = prefs()
-
-#         # Inside window region.
-#         # Test against tabs
-#         # if p.tabs.show_tabs:
-#         #     if region_type == 'HEADER':
-#         #         for label, rect, _ in tabs.data[region]:
-#         #             if isect_rect(x, y, rect):
-#         #                 if tabs.hover[region] != label:
-#         #                     tabs.hover_set(region, label)
-#         #                 return
-#         #     # Clear hover, if any
-#         #     elif tabs.hover_active:
-#         #         hover_clear()
-#         #         return
+def namespace(*names: tuple[str], **defaults):
+    assert all(isinstance(n, str) for n in names)
+    class FixedNamespace:
+        __slots__ = names or tuple(defaults)
+    namespace = FixedNamespace()
+    for k, v in defaults.items():
+        setattr(namespace, k, v)
+    return namespace
 
 
-#     def clear():
-#         # nonlocal tabs, hover_clear
-#         # del tabs, hover_clear
-
-#         # nonlocal thumb_vpos_calc, SpaceTextEditor
-#         nonlocal SpaceTextEditor
-#         # del thumb_vpos_calc, SpaceTextEditor
-#         del SpaceTextEditor
-#         nonlocal inner
-#         del inner
-
-#     inner.clear = clear
-#     del clear, Tabs
-#     return inner
+def area_from_space_data(st) -> bpy.types.Area:
+    assert isinstance(st.id_data, bpy.types.Screen), st.id_data
+    for area in st.id_data.areas:
+        if area.spaces[0] == st:
+            return area
 
 
+def region_from_space_data(st, region_type='WINDOW') -> bpy.types.Region:
+    for region in area_from_space_data(st).regions:
+        if region.type == region_type:
+            return region
 
 
-class Operators(PropertyGroup):
-    
-    class KeymapData(PropertyGroup):
-        str: StringProperty()
+@factory
+def redraw_text():
+    from .btypes import ARegion, bContext, byref, get_area_region_type
 
-    @classmethod
-    def register(cls):
-        bpy.utils.register_class(cls.KeymapData)
-        cls.kmidata = CollectionProperty(type=cls.KeymapData)
+    art = get_area_region_type('TEXT_EDITOR', 'WINDOW')
+    draw = art.draw
+    ctx_ref = byref(bContext(_context))
 
-    @classmethod
-    def unregister(cls):
-        bpy.utils.unregister_class(cls.KeymapData)
-        del cls.kmidata
+    def redraw_text():
+        if region := _context.region:
+            draw(ctx_ref, byref(ARegion(region)))
+    return redraw_text
 
 
-to_string, from_str = serialize_factory()
+def make_space_data_instancer(cls, space_type=bpy.types.SpaceTextEditor):
+    def get_instance(*, cache={}) -> cls:
+        try:
+            return cache[_context.space_data]
+        except KeyError:
+            _check_type(st := _context.space_data, space_type)
+            return cache.setdefault(st, cls(st))
+    get_instance.__annotations__["return"] = cls
+    return get_instance
 
 
-class TextensionRuntime(PropertyGroup):
-    """
-    Runtime settings @ bpy.context.window_manager.textension
-    """
+# See ``txt_make_dirty`` in source/blender/blenkernel/intern/text.c.
+def tag_text_dirty(text: bpy.types.Text):
+    _check_type(text, bpy.types.Text)
 
-    tab: EnumProperty(items=(('CORE',    "Core",    "Core settings"),
-                             ('PLUGINS', "Plugins", "Plugins settings"),
-                             ('KEYMAPS', "Keymaps", "Keymaps settings")))
+    internal = text.internal
+    TXT_ISDIRTY = 1 << 0
+    internal.flags |= TXT_ISDIRTY
 
-    show_all_kmi: BoolProperty(default=False)
+    if internal.compiled:
+        from ctypes import pythonapi, cast, py_object
+        pythonapi.Py_DecRef(cast(internal.compiled, py_object))
+        internal.compiled = 0
+
+
+# A context manager decorator with less overhead.
+class cm:
+    __slots__ = ("iterator", "result")
+    __enter__ = object.__init_subclass__
+
+    def __new__(cls, func):
+        self = super().__new__(cls)
+        def wrapper(*args):
+            self.iterator = func(*args)
+            self.result   = next(self.iterator)
+            return self
+        return wrapper
+
+    def __exit__(self, *_):
+        try:
+            next(self.iterator)
+        except:
+            pass
+
+
+def get_addon_keymap(keymap_name):
+    kc = _context.window_manager.keyconfigs
+    km = kc.addon.keymaps.get(keymap_name)
+
+    if km is None:
+        default_km = kc.default.keymaps.get(keymap_name)
+        if not default_km:
+            return None
+
+        km = kc.addon.keymaps.new(
+            keymap_name,
+            space_type=default_km.space_type,
+            region_type=default_km.region_type,
+            modal=getattr(km, "is_modal", False)  # 3.3.0 and up doesn't have this
+        )
+
+    return km
+
+
+def add_keymap(km_name: str, idname: str, type: str, value: str, **kw):
+    km = get_addon_keymap(km_name)
+    return km, km.keymap_items.new(idname, type, value, **kw)
+
+
+@classmethod
+def text_poll(cls, context):
+    st = context.space_data
+    return is_spacetext(st) and st.text
+
+
+def set_name(name):
+    def wrapper(func):
+        func.__name__ = name
+        func.__qualname__ = name
+        func.__code__ = func.__code__.replace(co_name=name)
+        return func
+    return wrapper
+
+
+class TextOperator(bpy.types.Operator):
+    # Needed for undo plugin.
+    _register_hooks   = []
+    _unregister_hooks = []
+
+    def __init_subclass__(cls):
+        # Automate setting bl_idname and bl_label.
+        cls.bl_idname = ".".join(pair := cls.__name__.lower().split("_ot_"))
+        cls.bl_label = pair[1].replace("_", " ").title()
 
     @classmethod
     def register(cls):
-        bpy.types.WindowManager.textension = bpy.props.PointerProperty(type=cls)
+        for hook in cls._register_hooks:
+            hook(cls)
 
-    @classmethod
-    def unregister(cls):
-        assert cls.is_registered
-        del bpy.types.WindowManager.textension
-
-
-class TextensionPreferences(bpy.types.AddonPreferences,
-                            PropertyGroup):
-    """Textension Addon Preferences"""
-    bl_idname = __package__
-    from .km_utils import kmi_cb
-
-    # Internal.
-    # Keep a simple track of install date to determine first install, so we
-    # can grab and set default syntax colors based on the active theme.
-    install_date: StringProperty(options={'HIDDEN'})
-
-    wheel_scroll_lines: IntProperty(
-        name="Scroll Lines", description="Lines to scroll per wheel tick",
-        default=3, min=1, max=10,
-    )
-    nudge_scroll_lines: IntProperty(
-        name="Nudge Lines", description="Lines to nudge with Ctrl-Up/Down",
-        default=3, min=1, max=10,
-    )
-    use_smooth_scroll: BoolProperty(
-        name="Smooth Scrolling", description="Smooth scroll with mouse wheel",
-        default=True, update=kmi_cb("scroll2", "use_smooth_scroll"),
-    )
-    scroll_speed: FloatProperty(
-        name="Scroll Speed", description="Scroll speed multiplier",
-        default=5, min=1, max=20,
-    )
-    use_continuous_scroll: BoolProperty(
-        name="Continuous Scrolling",
-        description="Enable continuous scrolling with middle mouse",
-        default=True,
-        update=kmi_cb("scroll_continuous", "use_continuous_scroll"),
-    )
-    closing_bracket: BoolProperty(
-        name="Close Brackets", description="Automatically close brackets",
-        default=True,
-    )
-    use_new_linebreak: BoolProperty(
-        name="New Line Break",
-        description="Use line break which adds indentation",
-        default=True,
-        update=kmi_cb("line_break", "use_new_linebreak"),
-    )
-    use_home_toggle: BoolProperty(
-        name="Home Toggle",
-        description="Home key toggles between line start and indent level",
-        default=True,
-        update=kmi_cb("move_toggle", "use_home_toggle"),
-    )
-    use_search_word: BoolProperty(
-        default=True, name="Search by Selection",
-        description="Selected word is automatically copied to search field",
-        update=kmi_cb("search_with_selection", "use_search_word"),
-    )
-    use_cursor_history: BoolProperty(
-        name="Use Cursor History",
-        description="Enable to use cursor history with mouse 4/5",
-        default=True,
-        update=kmi_cb("cursor_history", "use_cursor_history"),
-    )
-    use_header_toggle: BoolProperty(
-        name="Toggle Header", description="Toggle header with hotkey (Alt)",
-        default=True, update=kmi_cb("toggle_header", "use_header_toggle"),
-    )
-    use_line_number_select: BoolProperty(
-        name="Line Number Select",
-        description="Select lines from line number margin",
-        default=True,
-        update=kmi_cb("line_select", "use_line_number_select"),
-    )
-    triple_click: EnumProperty(
-        name="Triple-Click",
-        description="Type of selection when doing a triple click",
-        default='LINE',
-        items=(("LINE", "Line", "Select entire line"),
-               ("PATH", "Path", "Select entire python path")),
-    )
-
-    def draw_plugins(self, context, layout):
-
-        # def plugin_layout(layout, plugin):
-            # layout.separator()
-
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-        for plugin in self.plugins:
-            module = plugin.module
-            box = layout.box()
-            row = box.row(heading=plugin.name.replace("_", " ").title())
-            split = row.split()
-            row = split.row()
-            row.prop(plugin, "enabled", text="Enable", toggle=True)
-
-            row.label()
-
-            if plugin.enabled:
-                draw_func = getattr(module, "draw_settings", None)
-
-                # For custom plugin draw method
-                if draw_func is not None:
-                    if plugin.show_settings:
-                        col = box.column()
-                        col.separator(factor=0.5)
-                        draw_func(self, context, col)
-                        col.separator(factor=0.5)
-
-                    kwargs = {"text": "Settings", "toggle": True, "icon": "NONE"}
-
-                    # If the poll returns False, set an error icon
-                    if getattr(module, "poll_plugin", None.__class__)() is False:
-                        kwargs["icon"] = "ERROR"
-
-                    row.prop(plugin, "show_settings", **kwargs)
-                else:
-                    row.label()
-            else:
-                row.label()
-            # plugin_layout(layout, p)
-
-    def draw_keymaps(self, context, layout):
-        col = layout.column(align=True)
-        # rw = context.region.width
-
-        rw = context.region.width
-        textension = context.window_manager.textension
-        show_all = textension.show_all_kmi
-        text = "Show All" if not show_all else "Collapse"
-        col.prop(textension, "show_all_kmi", text=text, emboss=False)
-        col.separator(factor=2)
-
-        kmi_range = slice(19 if not show_all else None)
-
-        # Custom keymaps are stored on each operator.
-        for cls in classes()[kmi_range]:
-            keymaps = getattr(cls, "_keymaps", ())
-            for idx, (km, kmi, note) in enumerate(keymaps):
-                if note == "HIDDEN":
-                    continue
-
-                km_utils.kmi_ensure(cls, idx, kmi)
-                self.draw_kmi(col, rw, kmi, note)
-
-        col.separator(factor=2)
-        if show_all:
-            col.prop(textension, "show_all_kmi", text=text, emboss=False)
-
-
-    def draw(self, context):
-        layout = self.layout
-
-        row = layout.row()
-        row.prop(self.runtime, "tab", expand=True)
-        layout.separator()
-
-        row = layout.row()
-        row.alignment = 'CENTER'
-        col = row.column(align=True)
-        # col.ui_units_x = 20
-
-        if self.runtime.tab == 'PLUGINS':
-            self.draw_plugins(context, col)
-        elif self.runtime.tab == 'KEYMAPS':
-            self.draw_keymaps(context, col)
-
-        """
-        textension = context.window_manager.textension
-        if textension is None:
+        # Handle operators with keymap meta definitions here.
+        meta = getattr(cls, "__km__", None)
+        if not isinstance(meta, list):
             return
-        tab = textension.tab
-        rw = context.region.width
-        if tab != 'KEYMAP' and textension.show_all_kmi:
-            textension.show_all_kmi = False
-        show_all = textension.show_all_kmi
 
-        layout = self.layout
-        mainrow = layout.row()
+        keymaps = []
 
-        # Tab column.
-        tabcol = mainrow.column()
-        tabcol.alignment = 'LEFT'
-        tabcol.ui_units_x = 3.5
-        tabcol.scale_y = 1.1
-        tabcol.prop(textension, "tab", expand=True)
+        for kmname, type, value, kw1, kw2 in meta:
+            km = get_addon_keymap(kmname)
 
-        row = mainrow.row()
-        row.alignment = 'CENTER'
-
-        def rowgroup(layout, title):
-            if isinstance(title, tuple):
-                prop = title
-            else:
-                prop = None
-            row = layout.row()
-            row.alignment = 'LEFT'
-            row.ui_units_x = 20
-            col = row.column()
-            col.ui_units_x = 20
-            b = col.box()
-            b.scale_y = 0.5
-            if prop:
-                state = getattr(*prop)
-                r = b.row()
-                r.alignment = 'LEFT'
-                icon = "CHECKBOX_HLT" if state else "CHECKBOX_DEHLT"
-                r.emboss = 'NONE'
-                r.prop(*prop, icon=icon)
-            else:
-                b.label(text=title)
-            col.separator(factor=0.2)
-            r = col.row()
-            return r
-
-        def prop_split(layout, data, prop, **kw):
-            col = layout.column(align=True)
-            split = col.split(factor=0.25)
-            split.prop(data, prop, text="", **kw)
-            title = data.__annotations__[prop][1]["name"]
-            split.label(text=title)
-
-        def rpad(layout, align=True):
-            r = layout.row(align=align)
-            r.alignment = 'LEFT'
-            return r
-
-        self.tabcol = tabcol
-        self.mainrow = mainrow
-        self.row = row
-        # self.colgroup = colgroup
-
-        if tab == 'MAIN':
-            col = row.column()
-            columns = int(context.region.width / 405)
-            flow = col.grid_flow(columns=columns, row_major=True, align=True)
-
-            # Navigation.
-            rg = rowgroup(flow, "Navigation")
-            c = rg.column()
-            c.prop(self, "use_smooth_scroll")
-            c.prop(self, "use_continuous_scroll")
-            c.prop(self, "use_home_toggle")
-
-            c = rg.column()
-            c.prop(self, "scroll_speed")
-            c.prop(self, "wheel_scroll_lines")
-            c.prop(self, "nudge_scroll_lines")
-            c.separator(factor=4)
-
-            # Editing.
-            rg = rowgroup(flow, "Editing")
-            c = rg.column()
-            c.prop(self, "use_line_number_select")
-            c.prop(self, "use_search_word")
-            c.prop(self, "use_new_linebreak")
-            c.prop(self, "closing_bracket")
-            c.separator(factor=4)
-            c = rg.column()
-            c.ui_units_x = 8.2
-            c.prop(self, "use_header_toggle")
-            c.separator(factor=1)
-            c.label(text="Triple Click Select")
-            r = rpad(c)
-            r.prop(self, "triple_click", expand=True)
-
-            # Cursor.
-            # syntax = self.syntax
-            rg = rowgroup(flow, "Cursor")
-            c = rg.column()
-            c.prop(self, "use_cursor_history")
-
-            # Row > align left > column > ui_units 1
-            r = c.row(align=True)
-            r.alignment = 'LEFT'
-            cs = r.column()
-            # cs.prop(syntax.colors, "currct", text="")
-            cs.ui_units_x = 1
-            r.separator(factor=0.4)
-            r.label(text="Cursor Color")
-
-            c.separator()
-            r = c.row(align=True)
-            r.alignment = 'LEFT'
-            cs = r.column()
-            cs.label(text="Cursor Type")
-            # cs.prop(syntax, "cursor_type", text="")
-
-            c = rg.column()
-            c.ui_units_x = 8
-            # c.prop(syntax, "smooth_cursor")
-            r = c.row()
-            c = r.column()
-            # c.enabled = syntax.smooth_cursor
-            # c.prop(syntax, "smooth_typing")
-            c.separator(factor=1)
-
-            r = c.row(align=True)
-            r1 = r.row()
-            r1.label(text="Direction")
-            r2 = r.row(align=True)
-            r2.alignment = 'RIGHT'
-            r2.ui_units_x = 6
-            # r2.prop(syntax, "smooth_horz", toggle=True)
-            # r2.prop(syntax, "smooth_vert", toggle=True)
-            r = c.row()
-            r1 = r.row(align=True)
-            r1.alignment = 'LEFT'
-            r1.label(text="Speed")
-            r2 = r.row(align=True)
-            r2.alignment = 'RIGHT'
-            c = r2.column()
-            # c.prop(syntax, "cursor_speed", slider=True)
-            c.ui_units_x = 6
-            c.separator(factor=4)
-
-            # Tabs.
-            tabs = self.tabs
-            rg = rowgroup(flow, (tabs, "show_tabs"))
-            if tabs.show_tabs:
-                c = rg.column(align=True)
-                c.prop(tabs, "use_large_tabs")
-                c.prop(tabs, "fit_to_region")
-                c.separator()
-                c.prop(tabs, "drag_to_reorder")
-                c.prop(tabs, "mmb_close")
-                c.prop(tabs, "double_click_new")
-
-                c = rg.column(align=True)
-                c.ui_units_x = 8
-                c.prop(tabs, "show_new_menus")
-                c.separator()
-                c.label(text="Run Script Button")
-                c.prop(tabs, "run_script_text")
-                c.prop(tabs, "run_script_icon")
-                c.prop(tabs, "run_script_emboss")
-                c.separator()
-
-            # rg = rowgroup(flow, "Tabs")
-
-        if tab == 'HIGHLIGHT':
-            self.draw_hlite_prefs(self.highlights, context, row)
-
-        # Draw custom keymaps.
-        if tab == 'KEYMAP':
-            col = row.column(align=True)
-            # rw = context.region.width
-
-            text = "Show All" if not show_all else "Collapse"
-            col.prop(textension, "show_all_kmi", text=text, emboss=False)
-            col.separator(factor=2)
-
-            kmi_range = slice(19 if not show_all else None)
-
-            # Custom keymaps are stored on each operator.
-            for cls in classes()[kmi_range]:
-                keymaps = getattr(cls, "_keymaps", ())
-                for idx, (km, kmi, note) in enumerate(keymaps):
-                    if note == "HIDDEN":
-                        continue
-
-                    km_utils.kmi_ensure(cls, idx, kmi)
-                    self.draw_kmi(col, rw, kmi, note)
-
-            col.separator(factor=2)
-            if show_all:
-                col.prop(textension, "show_all_kmi", text=text, emboss=False)
-
-        # elif tab == 'SYNTAX':
-        #     self.syntax.draw(self, context)
-        # elif tab == 'TABS':
-        #     self.tabs.draw(self.layout, context)
-        layout.separator(factor=4)
-"""
-    @classmethod
-    def register(cls):
-        p = bpy.context.preferences.addons[__package__].preferences
-        # Bind prefs default arg for faster access
-        prefs.__defaults__ = (p,)
-
-        global ud
-        ud = UnifiedDraw()
-
-        # Register textension operator kmi data.
-        register_class(Operators)
-        cls.operators = CollectionProperty(type=Operators)
-
-        from .types import Plugin
-        register_class(Plugin)
-        cls.plugins = CollectionProperty(type=Plugin)
-
-        plugins = p.plugins
-        from . import get_plugins
-        plugins_dict = get_plugins()
-
-        # If a previously found plugin no longer exists, remove its entry.
-        for index, plugin in reversed(list(enumerate(plugins))):
-            if plugin.name not in plugins_dict:
-                plugins.remove(index)
-
-        for name, module in plugins_dict.items():
-            plugin: Plugin = plugins.get(name)
-
-            if plugin is None:
-                plugin = plugins.add()
-                plugin.name = name
-                plugin.full_name = module.__name__
-
-            if plugin.enabled:
-                plugin.module.enable()
-
-
-        global km_utils
-        from . import km_utils
-        cls.kmi_ensure = staticmethod(km_utils.kmi_ensure)
-        cls.draw_kmi = staticmethod(km_utils.draw_kmi)
-
-        # Convenience access to TextensionRuntime instance
-        register_class(TextensionRuntime)
-        cls.runtime = bpy.context.window_manager.textension
-
-        # TODO: Move into cls (used for kmi display).
-        global classes
-
-        operators = p.operators
-        from . import classes
-        for cls_ in classes():
-            if operators.get(cls_.__name__):
+            if not km:
+                print(f"Textension: Invalid keymap '{kmname}' ({cls.__name__})")
                 continue
-            op = operators.add()
-            op.name = cls_.__name__
 
-        msg = f"Previously installed ({p.install_date})"
-
-        if not p.install_date:
-            msg = "First time install"
-            from time import asctime
-            cls._first_time_install = True
-            p.install_date = f"{asctime()}"
-
-        log("ADDON", msg)
+            kmi = km.keymap_items.new(cls.bl_idname, type, value, **kw1)
+            for name, value in kw2.items():
+                setattr(kmi.properties, name, value)
+            keymaps += [(km, kmi)]
+        cls._keymaps = keymaps
 
     @classmethod
     def unregister(cls):
-        p = prefs()
+        for hook in cls._unregister_hooks:
+            hook(cls)
 
-        for plugin in p.plugins:
-            if plugin.enabled:
-                plugin.module.disable()
-
-        from .types import Plugin
-        unregister_class(Plugin)
-        del cls.plugins
-
-        unregister_class(TextensionRuntime)
-        del cls.runtime
-
-        unregister_class(Operators)
-        del cls.operators
-
-        del cls.kmi_ensure
-        del cls.draw_kmi
-
-        global ud
-        ud.nuke()
-        del ud
-        caches = getattr(defcache, "all_caches", [])
-        for c in caches:
-            c.clear()
-        caches.clear()
-
-        assert not bool(_editors), f"_editors not cleared, {_editors}"
-
-        # Unbind and invalidate prefs
-        prefs.__defaults__ = (None,)
+        if keymaps := getattr(cls, "_keymaps", None):
+            for km, kmi in keymaps:
+                km.keymap_items.remove(kmi)
+            keymaps.clear()
 
 
-del serialize_factory
+# State-less interface for LinearStack.
+class Adapter:
+    def get_string(self) -> str:
+        return ""
+
+    def set_string(self, string) -> None:
+        pass
+
+    def get_cursor(self):
+        pass
+
+    def set_cursor(self, cursor):
+        pass
+
+    def get_should_split(self, hint: bool) -> bool:
+        return hint
+
+    # Update hook on stack initialization and undo push.
+    def update(self, restore=False):
+        pass
+
+    # These are fallback polls for when LinearStack.poll_undo/redo fails but
+    # we still want to consume the undo event for focused Widgets.
+    def poll_undo(self):
+        return False
+
+    def poll_redo(self):
+        return False
+
+    @property
+    def is_valid(self):
+        return True
+
+    def __repr__(self):
+        return f"{type(self).__name__}"
+
+
+# TODO: Use unified diff instead of storing the whole text.
+class Step:
+    __slots__ = ("data", "cursor1", "cursor2", "tag")
+
+    data:    str
+    cursor1: tuple[int]
+    tag:     str
+
+    def __init__(self, adapter: Adapter, tag=""):
+        self.data    = adapter.get_string()
+        self.cursor1 = adapter.get_cursor()
+        self.cursor2 = None
+        self.tag     = tag
+
+    def __repr__(self):
+        return f"<Step tag={self.tag} at 0x{id(self):0>16X}>"
+
+
+class LinearStack:
+    __slots__ = ("undo", "redo", "last_push", "adapter")
+
+    def __init__(self, adapter: Adapter):
+        self.undo: list[Step] = []
+        self.redo: list[Step] = []
+
+        self.adapter   = adapter
+        self.last_push = 0.0
+
+        # The initial state.
+        self.push_undo(tag="init")
+
+    def __repr__(self):
+        return f"<LinearStack ({self.adapter}) at 0x{id(self):0>16X}>"
+
+    def pop_undo(self) -> bool:
+        # We don't use ``self.poll_undo()`` here, because the stack can still
+        # be empty and poll True. Widgets must consume the undo when in focus.
+        if len(self.undo) > 1:
+            self.move_and_set(self.undo, self.redo)
+            return True
+
+        # Returning False here means that, when this method is used as a hook
+        # in ED_OT_undo, other hooks will run. We can't have focused Widgets
+        # pass the control to the next hook, so instead we use an adapter poll
+        # that allows custom return value.
+        return self.adapter.poll_undo()
+
+    def pop_redo(self) -> bool:
+        if self.redo:
+            self.move_and_set(self.redo, self.undo)
+            return True
+        return self.adapter.poll_redo()
+
+    def move_and_set(self, from_stack, to_stack):
+        to_stack.append(from_stack.pop())
+        state = self.undo[-1]
+        self.adapter.set_string(state.data)
+
+        if from_stack is self.undo:
+            self.adapter.set_cursor(state.cursor2 or state.cursor1)
+        else:
+            self.adapter.set_cursor(state.cursor1)
+        self.adapter.update(restore=True)
+
+    def restore_last(self):
+        if self.adapter.is_valid:
+            state = self.undo[-1]
+            self.adapter.set_string(state.data)
+            self.adapter.set_cursor(state.cursor2 or state.cursor1)
+            self.adapter.update(restore=True)
+
+    def push_undo(self, tag, *, can_group=True):
+        """If ``can_group`` is True, allow merging similar states."""
+        if undo := self.undo:
+            can_group &= tag == undo[-1].tag
+
+        now = monotonic()
+        adapter = self.adapter
+        state = Step(adapter, tag=tag)
+
+        if not can_group or now - self.last_push > 0.5 or \
+                adapter.get_should_split(can_group):
+            undo += [state]
+        else:
+            undo[-1] = state
+
+        self.last_push = now
+        self.redo.clear()
+        adapter.update()
+
+    def push_intermediate_cursor(self):
+        if self.undo:
+            self.undo[-1].cursor2 = self.adapter.get_cursor()
+
+    def poll_undo(self):
+        return len(self.undo) > 1 or self.adapter.poll_undo()
+
+    def poll_redo(self):
+        return bool(self.undo) or self.adapter.poll_redo()
