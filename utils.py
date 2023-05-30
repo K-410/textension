@@ -1,7 +1,7 @@
 # NOTE: This module must be importable by any submodule.
 # NOTE: Do not import stuff from this package at module level.
 
-
+import functools
 import operator
 import ctypes
 import types
@@ -49,7 +49,12 @@ is_tuple = tuple.__instancecheck__
 is_list = list.__instancecheck__
 
 noop = None.__init__
-noop_noargs = None.__init_subclass__
+noop_noargs = object.__init_subclass__
+
+falsy = None.__init__
+falsy_noargs = bool
+
+truthy_noargs = True.__sizeof__
 
 PyInstanceMethod_New = ctypes.pythonapi.PyInstanceMethod_New
 PyInstanceMethod_New.argtypes = (ctypes.py_object,)
@@ -100,15 +105,60 @@ def factory(func):
 
 
 def _descriptor(func, setter=None):
-    return property(PyInstanceMethod_New(func), setter)
+    return property(_unbound_method(func), setter)
 
 
-def _forwarder(string: str):
-    return _descriptor(operator.attrgetter(string))
+def _forwarder(*strings: str):
+    return _descriptor(operator.attrgetter(*strings))
 
 
 def _named_index(*indices: tuple[int]):
     return _descriptor(operator.itemgetter(*indices))
+
+
+def _unbound_getter(*names: str):
+    return _unbound_method(operator.attrgetter(*names))
+
+
+def _unbound_attrcaller(name: str):
+    return property(_unbound_getter(name))
+
+
+def inline(func):
+    code = func.__code__
+    args = (None,) * code.co_argcount
+    posonly_args = (None,) * code.co_posonlyargcount
+    return func(*args, *posonly_args)
+
+
+@factory
+def _unbound_method(func: Callable):
+    return PyInstanceMethod_New
+
+
+# Patch a function with new closures and code object. Returns copy of the old.
+def _patch_function(fn: FunctionType, new_fn: FunctionType):
+    orig = _copy_function(fn)
+
+    # Apply the closure cells from the new function.
+    PyFunction_SetClosure(fn, new_fn.__closure__)
+
+    fn.__code__ = new_fn.__code__.replace(co_name=f"{fn.__name__} ({new_fn.__name__})")
+    fn.__orig__ = vars(fn).setdefault("__orig__", orig)
+    return orig
+
+
+# Make a deep copy of a function.
+def _copy_function(f):
+    g = FunctionType(
+        f.__code__,
+        f.__globals__,
+        name=f.__name__,
+        argdefs=f.__defaults__,
+        closure=f.__closure__)
+    g = functools.update_wrapper(g, f)
+    g.__kwdefaults__ = f.__kwdefaults__
+    return g
 
 
 def _check_type(obj, *types):
