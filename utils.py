@@ -125,10 +125,13 @@ def _unbound_attrcaller(name: str):
 
 
 def inline(func):
-    code = func.__code__
-    args = (None,) * code.co_argcount
-    posonly_args = (None,) * code.co_posonlyargcount
-    return func(*args, *posonly_args)
+    if hasattr(func, "__code__"):
+        code = func.__code__
+        args = (None,) * code.co_argcount
+        posonly_args = (None,) * code.co_posonlyargcount
+        return func(*args, *posonly_args)
+    else:
+        return func()
 
 
 @factory
@@ -137,13 +140,16 @@ def _unbound_method(func: Callable):
 
 
 # Patch a function with new closures and code object. Returns copy of the old.
-def _patch_function(fn: FunctionType, new_fn: FunctionType):
+def _patch_function(fn: FunctionType, new_fn: FunctionType, rename=True):
     orig = _copy_function(fn)
 
     # Apply the closure cells from the new function.
     PyFunction_SetClosure(fn, new_fn.__closure__)
 
-    fn.__code__ = new_fn.__code__.replace(co_name=f"{fn.__name__} ({new_fn.__name__})")
+    name = f"{fn.__name__}"
+    if rename:
+        name += f" ({new_fn.__name__})"
+    fn.__code__ = new_fn.__code__.replace(co_name=name)
     fn.__orig__ = vars(fn).setdefault("__orig__", orig)
     return orig
 
