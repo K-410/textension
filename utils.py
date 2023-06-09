@@ -99,6 +99,20 @@ def classproperty(func):
     return classmethod(property(func))
 
 
+def make_default_cache(default) -> dict:
+    """Usage:
+
+    @default_cache
+    def fallback(self, key):
+        result = do_something(key)
+        self[key] = result
+        return result
+    """
+    class cache(dict):
+        __missing__ = default
+    return cache
+
+
 def factory(func):
     args = (None,) * func.__code__.co_argcount
     return func(*args)
