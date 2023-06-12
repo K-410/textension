@@ -17,6 +17,9 @@ from bpy.utils import register_class, unregister_class
 from typing import Callable
 from types import CellType, FunctionType
 
+from operator import methodcaller, attrgetter
+from itertools import compress
+
 from sys import _getframe
 from time import monotonic
 
@@ -54,7 +57,9 @@ noop_noargs = object.__init_subclass__
 falsy = None.__init__
 falsy_noargs = bool
 
-truthy_noargs = True.__sizeof__
+# True.__sizeof__ is actually faster, but returns a non-zero int which may
+# or may not be semantically correct.
+truthy_noargs = True.__bool__
 
 PyInstanceMethod_New = ctypes.pythonapi.PyInstanceMethod_New
 PyInstanceMethod_New.argtypes = (ctypes.py_object,)
@@ -63,6 +68,16 @@ PyInstanceMethod_New.restype = ctypes.py_object
 PyFunction_SetClosure = ctypes.pythonapi.PyFunction_SetClosure
 PyFunction_SetClosure.argtypes = ctypes.py_object, ctypes.py_object
 PyFunction_SetClosure.restype = ctypes.c_int
+
+
+def inline(func):
+    if hasattr(func, "__code__"):
+        code = func.__code__
+        args = (None,) * code.co_argcount
+        posonly_args = (None,) * code.co_posonlyargcount
+        return func(*args, *posonly_args)
+    else:
+        return func()
 
 
 def is_methoddescriptor(obj):
@@ -99,18 +114,23 @@ def classproperty(func):
     return classmethod(property(func))
 
 
-def make_default_cache(default) -> dict:
-    """Usage:
+def instanced_default_cache(default_func):
+    _check_type(default_func, FunctionType)
+    argcount = default_func.__code__.co_argcount
+    assert argcount == 2, f"Expected a function taking 2 arguments, not {argcount}."
+    class _DefaultDict(dict):
+        __missing__ = default_func
+    return _DefaultDict()
 
-    @default_cache
-    def fallback(self, key):
-        result = do_something(key)
-        self[key] = result
-        return result
-    """
-    class cache(dict):
-        __missing__ = default
-    return cache
+
+@inline
+def starchain(it):
+    from itertools import chain
+    return chain.from_iterable
+
+@inline
+def dict_items(d: dict):
+    return dict.items
 
 
 def factory(func):
@@ -138,16 +158,6 @@ def _unbound_attrcaller(name: str):
     return property(_unbound_getter(name))
 
 
-def inline(func):
-    if hasattr(func, "__code__"):
-        code = func.__code__
-        args = (None,) * code.co_argcount
-        posonly_args = (None,) * code.co_posonlyargcount
-        return func(*args, *posonly_args)
-    else:
-        return func()
-
-
 @factory
 def _unbound_method(func: Callable):
     return PyInstanceMethod_New
@@ -159,6 +169,9 @@ def _patch_function(fn: FunctionType, new_fn: FunctionType, rename=True):
 
     # Apply the closure cells from the new function.
     PyFunction_SetClosure(fn, new_fn.__closure__)
+
+    # Apply new defaults, if any.
+    fn.__defaults__ = new_fn.__defaults__
 
     name = f"{fn.__name__}"
     if rename:
@@ -375,13 +388,13 @@ def get_scrollbar_x_points(region_width):
 
 
 def iter_areas(area_type='TEXT_EDITOR'):
-    for area in chain.from_iterable(map(get_areas_from_window, _context.window_manager.windows)):
+    for area in starchain(map(get_areas_from_window, _context.window_manager.windows)):
         if area.type == area_type:
             yield area
 
 
 def iter_regions(area_type='TEXT_EDITOR', region_type='WINDOW'):
-    for region in chain.from_iterable(map(get_regions_from_area, iter_areas(area_type))):
+    for region in starchain(map(get_regions_from_area, iter_areas(area_type))):
         if region.type == region_type:
             yield region
 
@@ -393,9 +406,6 @@ def iter_spaces(space_type='TEXT_EDITOR'):
 def redraw_editors(area='TEXT_EDITOR', region_type='WINDOW'):
     any(map(tag_redraw, iter_regions(area, region_type)))
 
-
-from operator import methodcaller, attrgetter
-from itertools import compress, chain
 
 get_id = attrgetter("id")
 
