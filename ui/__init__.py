@@ -1,6 +1,7 @@
 # This package implements user interface related classes and utilities.
 
 from .utils import *
+from . import widgets
 
 
 def init():
