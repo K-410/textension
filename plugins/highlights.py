@@ -5,15 +5,11 @@ from itertools import chain
 from collections import deque
 import gpu
 from gpu.types import GPUVertBuf, GPUBatch, GPUVertFormat
-from textension.utils import _context, _system
-from textension.prefs import get_prefs
+from textension.utils import _context, _system, starchain
 from textension import utils
 
 
 prefs: "TEXTENSION_PG_highlights" = None
-
-iterchain = chain.from_iterable
-
 shader = from_builtin('2D_UNIFORM_COLOR')
 
 # Don't use shader.format_calc(), it's broken above 3.3.0.
@@ -57,7 +53,7 @@ def get_matches(substr, strlen, find):
 def to_tris(lineh, pts, y_ofs):
     y1 = Vector((0, y_ofs))
     y2 = Vector((0, lineh))
-    return (*iterchain(
+    return (*starchain(
         [(a, b, by, a, by, ay) for a, b, by, ay in
             [(a + y1, b + y1, b + y1 + y2, a + y1 + y2) for a, b, _ in pts]]),)
 
@@ -65,7 +61,7 @@ def to_tris(lineh, pts, y_ofs):
 def to_scroll(lineh, pts, y_ofs):
     y1 = Vector((-1, y_ofs))
     y2 = Vector((0, y_ofs))
-    return (*iterchain(
+    return (*starchain(
         [(a, b, by, a, by, ay) for a, b, by, ay in
             [(a + y1, b + y1, b + y1 + y2, a + y1 + y2) for a, b in pts]]),)
 
@@ -73,7 +69,7 @@ def to_scroll(lineh, pts, y_ofs):
 def to_frames(lineh, pts, y_ofs):
     y1 = Vector((0, y_ofs))
     y2 = Vector((0, lineh + y_ofs - 1))
-    return (*iterchain(
+    return (*starchain(
         [(a, b, ay, by + Vector((1, 0)), ay, a, by, b) for a, b, ay, by in
             [(a + y1, b + y1, a + y2, b + y2) for a, b, _ in pts]]),)
 

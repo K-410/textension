@@ -1,11 +1,11 @@
 # This module implements default text operator overrides.
 
-from textension.btypes.defs import OPERATOR_CANCELLED, OPERATOR_FINISHED, OPERATOR_PASS_THROUGH, OPERATOR_RUNNING_MODAL, TXT_ISMEM
+from textension.btypes.defs import OPERATOR_CANCELLED, OPERATOR_FINISHED, OPERATOR_PASS_THROUGH, OPERATOR_RUNNING_MODAL
 from textension.btypes import wmWindowManager, event_type_to_string
 from textension.core import test_line_numbers, iter_brackets, ensure_cursor_view, copy_selection
-from textension.utils import _context, add_keymap, _call, _system, factory, cm, _check_type, tag_text_dirty, unsuppress, classproperty
+from textension.utils import _context, add_keymap, _call, cm, tag_text_dirty, unsuppress, classproperty, starchain
 from textension.ui import get_mouse_region
-from textension.operators import find_word_boundary, is_scrolling
+from textension.operators import find_word_boundary
 
 from typing import Callable
 from . import OpOverride
@@ -246,7 +246,7 @@ def get_enum_type(override: Default, fallback=None):
     modifiers = tuple(bool(modifier & (1 << b)) for b in (0, 1, 2, 3))
 
     idname = override.bl_idname
-    for kmi in chain.from_iterable(map(get_kmis, kms)):
+    for kmi in starchain(map(get_kmis, kms)):
         if kmi.idname == idname and kmi.type == type and kmi.active:
             if kmi.any or get_modifiers(kmi) == modifiers:
                 return kmi.properties.type

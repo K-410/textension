@@ -23,43 +23,18 @@ from itertools import compress
 from sys import _getframe
 from time import monotonic
 
+
 _system = bpy.context.preferences.system
 
 _call = bpy.ops._op_call
-
 _editors: dict[str: dict] = {}
-
 _region_types = set(bpy.types.Region.bl_rna.properties['type'].enum_items.keys())
-
 _rna_hooks: dict[tuple, list[tuple[Callable, tuple]]] = {}
 
 # All possible cursors to pass Window.set_cursor()
 bl_cursor_types = set(bpy.types.Operator.bl_rna.properties['bl_cursor_pending'].enum_items.keys())
 
-is_text = bpy.types.Text.__instancecheck__
 is_spacetext = bpy.types.SpaceTextEditor.__instancecheck__
-is_operator = bpy.types.Operator.__instancecheck__
-is_operator_subclass = bpy.types.Operator.__subclasscheck__
-is_module = types.ModuleType.__instancecheck__
-is_builtin = types.BuiltinFunctionType.__instancecheck__
-is_method = types.MethodType.__instancecheck__
-is_function = types.FunctionType.__instancecheck__
-is_class = lambda cls: cls.__class__ is type
-is_bpyapp = type(bpy.app).__instancecheck__
-is_bpystruct = bpy.types.bpy_struct.__instancecheck__
-is_str = str.__instancecheck__
-is_tuple = tuple.__instancecheck__
-is_list = list.__instancecheck__
-
-noop = None.__init__
-noop_noargs = object.__init_subclass__
-
-falsy = None.__init__
-falsy_noargs = bool
-
-# True.__sizeof__ is actually faster, but returns a non-zero int which may
-# or may not be semantically correct.
-truthy_noargs = True.__bool__
 
 PyInstanceMethod_New = ctypes.pythonapi.PyInstanceMethod_New
 PyInstanceMethod_New.argtypes = (ctypes.py_object,)
@@ -70,6 +45,7 @@ PyFunction_SetClosure.argtypes = ctypes.py_object, ctypes.py_object
 PyFunction_SetClosure.restype = ctypes.c_int
 
 
+# This just converts the return values into functions for static analysis.
 def inline(func):
     if hasattr(func, "__code__"):
         code = func.__code__
@@ -79,14 +55,47 @@ def inline(func):
     else:
         return func()
 
+@inline
+def noop(*args, **kw) -> None:
+    return None.__init__
 
-def is_methoddescriptor(obj):
-    if hasattr(obj, "__get__"):
-        if not hasattr(obj, "__set__"):
-            if not is_class(obj):
-                if not is_method(obj):
-                    return not is_function(obj)
-    return False
+@inline
+def noop_noargs() -> None:
+    return object.__init_subclass__
+
+@inline
+def falsy(*args, **kw) -> None:
+    return None.__init__
+
+@inline
+def falsy_noargs() -> bool:
+    return bool
+
+@inline
+def get_dict(cls):
+    return type.__dict__["__dict__"].__get__
+
+@inline
+def get_mro(cls):
+    return type.__dict__["__mro__"].__get__
+
+@inline
+def get_module_dict(module):
+    return type(bpy).__dict__["__dict__"].__get__
+
+@inline
+def get_module_dir(module):
+    return type(bpy).__dir__
+
+@inline
+def consume(iterable) -> None:
+    return __import__("collections").deque(maxlen=0).extend
+
+# True.__sizeof__ is actually faster, but returns a non-zero int which may
+# or may not be technically correct.
+@inline
+def truthy_noargs() -> True:
+    return True.__bool__
 
 
 def safe_redraw():
@@ -145,9 +154,14 @@ def _descriptor(func, setter=None):
 def _forwarder(*strings: str):
     return _descriptor(operator.attrgetter(*strings))
 
+try:
+    from collections import _tuplegetter
+    def _named_index(index: int, doc: str = ""):
+        return _tuplegetter(index, doc)
 
-def _named_index(*indices: tuple[int]):
-    return _descriptor(operator.itemgetter(*indices))
+except ImportError:
+    def _named_index(index: int, doc: str = ""):
+        return _descriptor(operator.itemgetter(index))
 
 
 def _unbound_getter(*names: str):
@@ -404,7 +418,7 @@ def iter_spaces(space_type='TEXT_EDITOR'):
 
 
 def redraw_editors(area='TEXT_EDITOR', region_type='WINDOW'):
-    any(map(tag_redraw, iter_regions(area, region_type)))
+    consume(map(tag_redraw, iter_regions(area, region_type)))
 
 
 get_id = attrgetter("id")
