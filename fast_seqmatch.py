@@ -4,7 +4,7 @@ from difflib import SequenceMatcher
 
 
 class FastSequenceMatcher(SequenceMatcher):
-    def __chain_b(self):
+    def _SequenceMatcher__chain_b(self):
         b = self.b
         self.b2j = b2j = dict.fromkeys(b)
         for key in b2j:
