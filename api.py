@@ -268,7 +268,7 @@ def _clamp_line_column(text, line, column) -> tuple[int, int]:
         column = 0
 
     try:
-        body = text.lines[line]
+        body = text.lines[line].body
     except IndexError:
         line = len(text.lines) if line > 0 else 0
         body = len(text.lines[line].body)
