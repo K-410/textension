@@ -480,6 +480,8 @@ class TextDraw(Widget):
         """Transform logical lines to view. Used for scrolling."""
         _check_type(lines, float, int)
         ratio = self.get_view_ratio()
+        if ratio >= 1.0:
+            return 0.0
         span = self.height / ratio
         return ((self.line_height / span) / (1.0 - ratio)) * lines
 
