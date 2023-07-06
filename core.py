@@ -161,7 +161,7 @@ def ensure_cursor_view(action: str = "lazy", smooth=True, threshold=2, speed=1.0
     if not isinstance(text, bpy.types.Text):
         return
 
-    line, column = text.cursor.focus
+    line, column = text.cursor_focus
     st = _context.space_data
 
     line_offset = st.runtime._offs_px[1] / st.line_height
@@ -510,7 +510,7 @@ def scroll_to_cursor(action: str = "lazy"):
     st = _context.space_data
     region = _context.region
     rh = region.height
-    line, column = st.text.cursor.focus
+    line, column = st.text.cursor_focus
     y = st.region_location_from_cursor(line, column)[1]
     y += 4  # some weird pixel offset
     lh_px = st.runtime.lheight_px

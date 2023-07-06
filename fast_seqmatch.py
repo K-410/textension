@@ -1,30 +1,29 @@
+from textension.utils import _TupleBase, _named_index
 from collections import defaultdict
 from itertools import compress
 from difflib import SequenceMatcher
 
 
-class FastSequenceMatcher(SequenceMatcher):
-    def _SequenceMatcher__chain_b(self):
+class FastSequenceMatcher(SequenceMatcher, _TupleBase):
+    isjunk     = None
+    opcodes    = None
+    autojunk   = True
+    fullbcount = None
+
+    matching_blocks = None
+
+    a = _named_index(0)
+    b = _named_index(1)
+
+    def __init__(self, _):
         b = self.b
         self.b2j = b2j = dict.fromkeys(b)
+
         for key in b2j:
             b2j[key] = []
 
         for i, elt in enumerate(b):
             b2j[elt] += [i]
-
-        self.bjunk = junk = set()
-        isjunk = self.isjunk
-        if isjunk:
-
-            # junk.update(filter(isjunk, b2j.keys()))
-            for elt in b2j.keys():
-                if isjunk(elt):
-                    junk.add(elt)
-
-            # any(map(b2j.__delitem__, junk))
-            for elt in junk: # separate loop avoids separate list of keys
-                del b2j[elt]
 
         if (n := (len(b) // 100 + 1)) >= 3:
             self.b2j = defaultdict(list, compress(b2j.items(), map(n.__gt__, map(len, b2j.values()))))

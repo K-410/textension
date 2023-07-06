@@ -70,7 +70,7 @@ class Default(OpOverride):
 
 
 def _in_string(text):
-    sell, selc = text.cursor.focus
+    sell, selc = text.cursor_focus
     line_format = text.lines[sell].format
 
     if b"l" in line_format and selc < len(line_format):
@@ -92,43 +92,52 @@ class TEXT_OT_insert(Default):
             return OPERATOR_CANCELLED
 
         # Pass on when mouse hovers the line numbers margin.
-        if test_line_numbers(*get_mouse_region()):
-            return OPERATOR_PASS_THROUGH
+        # XXX: test_line_numbers isn't even working.
+        # if test_line_numbers(*get_mouse_region()):
+        #     return OPERATOR_PASS_THROUGH
 
         # Pass on zero-length text inputs.
-        if not bool(typed):
+        if not typed:
             return OPERATOR_PASS_THROUGH
         ColumnRetainer.clear()
 
-        # How far to advance the cursor. Some keycombos generate more than 1.
+        # Some keys generate more than 1 character.
         advance = len(typed)
 
         text = _context.edit_text
-        body = text.cursor_start_line.body
-        curl, curc, sell, selc = text.cursor
+
+        anchor = curl, curc = text.cursor_anchor
+        focus  = sell, selc = text.cursor_focus
+
+        if anchor > focus:
+            body = text.current_line.body
+            line = sell
+            col  = selc
+        else:
+            body = text.select_end_line.body
+            line = curl
+            col  = curc
+
         try:
             next_char = body[curc]
         except IndexError:
             # Cursor was at EOF
             next_char = ""
 
-        line, col = text.cursor_sorted[:2]
         last_format = text.format_from_indices(curl, max(0, curc - 1), sell, selc)
-        selected_text = text.selected_text
 
-        if selected_text and typed in {'"', "'", '(', '[', '{'}:
-
+        if anchor != focus and typed in {'"', "'", '(', '[', '{'}:
+            from textension.utils import starchain
+            selected_text = text.string_from_indices(*starchain(sorted((anchor, focus))))
             bracket = typed
             opposite = dict(zip("([{\"\'", ")]}\"\'"))
-
-            tmp = f"{bracket}{selected_text}{opposite[bracket]}"
 
             # Inline: increment both columns
             # Multi-line: increment the top column
             selc += 1 - (curl < sell)
             curc += 1 - (curl > sell)
 
-            text.write(tmp)
+            text.write(f"{bracket}{selected_text}{opposite[bracket]}")
             text.cursor = curl, curc, sell, selc
 
         else:
@@ -167,8 +176,7 @@ class TEXT_OT_insert(Default):
             text.select_set(line, col + advance, line, col + advance)
 
             for func in insert_hooks:
-                func.last_format = last_format
-                func()
+                func(line, col + advance, last_format)
 
         ensure_cursor_view()
         return OPERATOR_FINISHED
@@ -329,8 +337,7 @@ class TEXT_OT_delete(Default):
         text.cursor = cursor_post
         
         for func in delete_hooks:
-            func.last_format = last_format
-            func()
+            func(*cursor_post, last_format)
 
         return OPERATOR_FINISHED
 
@@ -683,7 +690,7 @@ class TEXT_OT_comment_toggle(Default):
 def move_toggle(select: bool):
     text = _context.edit_text
     body = text.select_end_line.body
-    line, column = text.cursor.focus
+    line, column = text.cursor_focus
 
     indent = len(body) - len(body.lstrip())
     column = 0 if column == indent else indent

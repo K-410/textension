@@ -55,6 +55,14 @@ def inline(func):
     else:
         return func()
 
+def inline_class(*args, star=True):
+    def wrapper(cls):
+        if star:
+            return cls(*args)
+        return cls(args)
+    return wrapper
+
+
 @inline
 def noop(*args, **kw) -> None:
     return None.__init__
@@ -243,14 +251,11 @@ def defer(callable, *args, delay=0.0, persistent=True, **kw):
 
 
 def register_classes(classes):
-    for cls in classes:
-        register_class(cls)
-
+    consume(map(register_class, classes))
 
 
 def unregister_classes(classes):
-    for cls in reversed(classes):
-        unregister_class(cls)
+    consume(map(unregister_class, reversed(classes)))
 
 
 def km_def(km: str, km_type: str, km_value: str, **kw):
@@ -402,19 +407,19 @@ def get_scrollbar_x_points(region_width):
 
 
 def iter_areas(area_type='TEXT_EDITOR'):
-    for area in starchain(map(get_areas_from_window, _context.window_manager.windows)):
+    for area in starchain(map(get_screen_areas, _context.window_manager.windows)):
         if area.type == area_type:
             yield area
 
 
 def iter_regions(area_type='TEXT_EDITOR', region_type='WINDOW'):
-    for region in starchain(map(get_regions_from_area, iter_areas(area_type))):
+    for region in starchain(map(get_regions, iter_areas(area_type))):
         if region.type == region_type:
             yield region
 
 
 def iter_spaces(space_type='TEXT_EDITOR'):
-    yield from map(get_space_from_area, iter_areas(space_type))
+    yield from map(get_spaces_active, iter_areas(space_type))
 
 
 def redraw_editors(area='TEXT_EDITOR', region_type='WINDOW'):
@@ -422,10 +427,9 @@ def redraw_editors(area='TEXT_EDITOR', region_type='WINDOW'):
 
 
 get_id = attrgetter("id")
-
-get_space_from_area = attrgetter("spaces.active")
-get_areas_from_window = attrgetter("screen.areas")
-get_regions_from_area = attrgetter("regions")
+get_spaces_active = attrgetter("spaces.active")
+get_screen_areas = attrgetter("screen.areas")
+get_regions = attrgetter("regions")
 tag_redraw = methodcaller("tag_redraw")
 
 
@@ -437,7 +441,7 @@ def text_from_id(text_id: int):
 
 
 def namespace(*names: tuple[str], **defaults):
-    assert all(isinstance(n, str) for n in names)
+    assert all(map(str.__instancecheck__, names))
     class FixedNamespace:
         __slots__ = names or tuple(defaults)
     namespace = FixedNamespace()
@@ -446,17 +450,12 @@ def namespace(*names: tuple[str], **defaults):
     return namespace
 
 
-def area_from_space_data(st) -> bpy.types.Area:
-    assert isinstance(st.id_data, bpy.types.Screen), st.id_data
+def region_from_space_data(st, region_type='WINDOW') -> bpy.types.Region:
     for area in st.id_data.areas:
         if area.spaces[0] == st:
-            return area
-
-
-def region_from_space_data(st, region_type='WINDOW') -> bpy.types.Region:
-    for region in area_from_space_data(st).regions:
-        if region.type == region_type:
-            return region
+            for region in area.regions:
+                if region.type == region_type:
+                    return region
 
 
 @factory
@@ -739,3 +738,20 @@ class LinearStack:
 
     def poll_redo(self):
         return bool(self.undo) or self.adapter.poll_redo()
+
+
+# pydevd substitutes tuple subclass instances' own __repr__ with a useless
+# string. This is a workaround specifically for debugging purposes.
+class _pydevd_repr_override_meta(type):
+    @property
+    def __name__(cls):
+        import sys
+        for v in filter(cls.__instancecheck__, sys._getframe(1).f_locals.values()):
+            return cls.__repr__(v)
+        return super().__name__
+
+
+# Base for aggregate initialization classes.
+class _TupleBase(tuple, metaclass=_pydevd_repr_override_meta):
+    __init__ = tuple.__init__
+    __new__  = tuple.__new__

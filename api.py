@@ -4,7 +4,7 @@
 from ctypes import Structure, Array, c_int, c_short, c_bool, c_char, \
     c_char_p, c_float, c_void_p, sizeof, addressof
 
-from operator import indexOf
+from operator import indexOf, attrgetter
 from typing import Iterable
 from .btypes import *
 import bpy
@@ -260,20 +260,25 @@ class TextLineAPI(APIBase):
             string = utils.tabs_to_spaces(string, self.id_data._get_tab_width())
         return len(string) - len(string.lstrip(" "))
 
-    # # Make it possible to use len(line)
-    # def __len__(self, len=len):
-    #     return len(self.body)
 
-    # # Make it possible to use string subscription on the line directly.
-    # def __getitem__(self, index):
-    #     return self.body[index]
+def _clamp_line_column(text, line, column) -> tuple[int, int]:
+    if line < 0:
+        line = 0
+    if column < 0:
+        column = 0
 
-    # # Make it possible to loop over the string on the line directly.
-    # def __iter__(self):
-    #     return iter(self.body)
+    try:
+        body = text.lines[line]
+    except IndexError:
+        line = len(text.lines) if line > 0 else 0
+        body = len(text.lines[line].body)
 
-    # def __bool__(self):
-    #     return bool(self.body)
+    try:
+        body[column]
+    except IndexError:
+        column = len(body) if column > 0 else 0
+
+    return line, column
 
 
 class TextCursor:
@@ -306,29 +311,24 @@ class TextCursor:
             else:
                 raise Exception(f"Text reference to TextCursor was removed")
 
-    def _clamp_line_column(self, pair) -> tuple[int, int]:
-        lines = self.text.lines
-        line = max(0, min(len(lines) - 1, pair[0]))
-        column = max(0, min(len(lines[line].body), pair[1]))
-        return line, column
-
     # The part of cursor that stays put during a drag selection.
     @property
     def anchor(self) -> tuple[int, int]:
         return self.text.current_line_index, self.text.current_character
     @anchor.setter
     def anchor(self, new_anchor):
-        self.text.current_line_index, self.text.current_character = \
-            self._clamp_line_column(new_anchor)
+        text = self.text
+        text.current_line_index, text.current_character = _clamp_line_column(text, *new_anchor)
 
     # The part of cursor that moves during a drag selection.
     @property
     def focus(self) -> tuple[int, int]:
-        return self.text.select_end_line_index, self.text.select_end_character
+        text = self.text
+        return text.select_end_line_index, text.select_end_character
     @focus.setter
     def focus(self, new_focus):
-        self.text.select_end_line_index, self.text.select_end_character = \
-            self._clamp_line_column(new_focus)
+        text = self.text
+        text.select_end_line_index, text.select_end_character = _clamp_line_column(text, *new_focus)
 
     @property
     def focus_line(self) -> int:
@@ -358,19 +358,13 @@ class TextCursor:
         return (*self.anchor, *self.focus)
 
     def set(self, line: int, col: int = 0, line2: int = None, col2: int = None):
-        assert isinstance(line, int)
-        assert isinstance(col, int)
-
-        line, col = self._clamp_line_column((line, col))
-
+        text = self.text
+        line, col = _clamp_line_column(text, line, col)
         if line2 is None:
-            self.text.cursor_set(line, character=col)
+            text.cursor_set(line, character=col)
         else:
-            assert isinstance(line2, int)
-            assert isinstance(col2, int)
-
-            line2, col2 = self._clamp_line_column((line2, col2))
-            self.text.select_set(line, col, line2, col2)
+            line2, col2 = _clamp_line_column(text, line2, col2)
+            text.select_set(line, col, line2, col2)
 
     def set_focus(self, line: int, col: int = 0):
         self.focus = line, col
@@ -427,7 +421,6 @@ class TextAPI(APIBase):
 
     # Given a set of cursor indices, return the string format.
     def format_from_indices(self, *cursor):
-        assert len(cursor) is 4
         curl, curc, sell, selc = cursor
         
         fmt = [l.format for l in self.lines[curl:sell + 1]]
@@ -476,23 +469,21 @@ class TextAPI(APIBase):
     def cursor_end_line_index(self):
         return max(self.current_line_index, self.select_end_line_index)
 
-    # The cursor, unsorted, i.e as it appears.
-    # @fproperty
-    # def cursor():
-    #     def getter(self):
-    #         return (self.current_line_index, self.current_character,
-    #                 self.select_end_line_index, self.select_end_character)
-    #     def setter(self, cursor):
-    #         if len(cursor) != 4:
-    #             if len(cursor) is not 2:
-    #                 raise ValueError("Expected 2 or 4 integers, got %s" % len(cursor))
-    #             cursor += cursor
-    #         self.select_set(*cursor)
-    #     return getter, setter
-
     @property
     def cursor(self):
         return TextCursor(self)
+
+    cursor2 = property(attrgetter("current_line_index", "current_character", "select_end_line_index", "select_end_character"))
+
+    @property(None).setter
+    def cursor_focus(self, new_focus):
+        self.select_end_line_index, self.select_end_character = _clamp_line_column(self, *new_focus)
+    cursor_focus = cursor_focus.getter(attrgetter("select_end_line_index", "select_end_character"))
+
+    @property(None).setter
+    def cursor_anchor(self, new_anchor):
+        self.current_line_index, self.current_character = _clamp_line_column(self, *new_anchor)
+    cursor_anchor = cursor_anchor.getter(attrgetter("current_line_index", "current_character"))
 
     @cursor.setter
     def cursor(self, cursor: tuple[int, int] | TextCursor):
@@ -507,10 +498,9 @@ class TextAPI(APIBase):
 
     @property
     def cursor_sorted(self):
-        curl, curc, sell, selc = self.cursor
-        if sell > curl or (sell == curl and selc > curc):
-            return curl, curc, sell, selc
-        return sell, selc, curl, curc
+        anchor = self.cursor_anchor
+        focus = self.cursor_focus
+        return (*anchor, *focus) if anchor < focus else (*focus, *anchor)
 
     @fproperty
     def curl():

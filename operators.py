@@ -100,7 +100,7 @@ def hit_test_cursor(x: int, y: int):
     text = _context.edit_text
     old = text.cursor.copy()
     set_cursor(x, y)
-    focus = text.cursor.focus
+    focus = text.cursor_focus
     text.cursor = old
     return focus
 
@@ -147,9 +147,9 @@ class TEXTENSION_OT_snap_select(TextOperator):
 
         # Set initial selection range.
         _call('TEXTENSION_OT_select_word', {}, {})
-        icurl, icurc, isell, iselc = context.edit_text.cursor
+        icurl, icurc, isell, iselc = context.edit_text.cursor2
         self.init_range = icurl, icurc, iselc
-        self.init_focus = context.edit_text.cursor.focus
+        self.init_focus = isell, iselc
         context.window_manager.modal_handler_add(self)
         self.timer = context.window_manager.event_timer_add(1e-3, window=context.window)
         return {'RUNNING_MODAL'}
