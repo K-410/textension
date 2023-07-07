@@ -99,6 +99,16 @@ def get_module_dir(module):
 def consume(iterable) -> None:
     return __import__("collections").deque(maxlen=0).extend
 
+
+@inline
+def _get_dict(typ) -> dict:
+    import ctypes
+    PyObject_GenericGetDict = ctypes.pythonapi.PyObject_GenericGetDict
+    PyObject_GenericGetDict.argtypes = [ctypes.py_object]
+    PyObject_GenericGetDict.restype = ctypes.py_object
+    return PyObject_GenericGetDict
+
+
 # True.__sizeof__ is actually faster, but returns a non-zero int which may
 # or may not be technically correct.
 @inline
@@ -244,6 +254,10 @@ def defer(callable, *args, delay=0.0, persistent=True, **kw):
     def wrapper(callable=callable, args=args, kw=kw):
         try:
             callable(*args, **kw)
+        except:
+            # Somehow Blender suppresses the traceback. WTF.
+            import traceback
+            traceback.print_exc()
         finally:
             return None
 
