@@ -18,7 +18,7 @@ class Editor(TextDraw):
     def __init__(self, st):
         self.st = st
         self.children = []  # Unused, but needed for scrollbar widget.
-        self.scrollbar = EditorScrollbar(parent=self)
+        self.scrollbar = EditorScrollbar(self)
 
     @property
     def top(self):
@@ -104,10 +104,10 @@ class EditorScrollbar(Scrollbar):
 
     def on_leave(self):
         self.thumb.set_highlight(False)
-        utils.region_from_space_data(self.parent.st).tag_redraw()
+        utils.safe_redraw_from_space_data(self.parent.st)
 
-    def __init__(self, *args, **kw):
-        super().__init__(*args, **kw)
+    def __init__(self, parent):
+        super().__init__(parent)
         self.selection_overlay = Selection(parent=self)
         self.cursor_overlay = Cursor(parent=self)
         self.thumb.on_leave = self.on_leave

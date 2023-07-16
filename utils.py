@@ -123,6 +123,13 @@ def safe_redraw():
         pass
 
 
+# Try to redraw a region from a space data regardless if it's dangling.
+def safe_redraw_from_space_data(st: bpy.types.Space, space_type: str = "TEXT_EDITOR"):
+    for space in iter_spaces(space_type):
+        if space == st:
+            return region_from_space_data(space).tag_redraw()
+
+
 # This just ensures tracebacks in the decoratee propagate to stderr.
 def unsuppress(func, sentinel=object()):
     def wrapper(*args, **kw):
