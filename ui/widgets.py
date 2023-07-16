@@ -67,7 +67,7 @@ class Widget:
 
         self.children = []
         if parent is not None:
-            parent.children.append(self)
+            parent.children += self,
 
         self.parent = parent
         self.rect   = Rect()

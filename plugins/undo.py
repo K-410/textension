@@ -219,7 +219,7 @@ def pyop_enable_new_undo(cls) -> bool:
         if hasattr(cls, method):
             if method == "execute":
                 method = "exec"
-            methods += [override(idname, method, pyop_wrapper)]
+            methods += override(idname, method, pyop_wrapper),
 
 
 def pyop_disable_new_undo(cls):
@@ -341,8 +341,8 @@ def enable():
         if cls.is_registered:
             pyop_enable_new_undo(cls)
 
-    TextOperator._register_hooks.append(pyop_enable_new_undo)
-    TextOperator._unregister_hooks.append(pyop_disable_new_undo)
+    TextOperator._register_hooks += pyop_enable_new_undo,
+    TextOperator._unregister_hooks += pyop_disable_new_undo,
 
     # Internal operators.
     _apply_default_undo()
@@ -352,13 +352,13 @@ def enable():
     from textension.overrides.default import ED_OT_undo, ED_OT_redo
     ED_OT_undo.add_poll(undo_poll)
     ED_OT_undo.add_pre(undo_pre, is_global=True)
-    ED_OT_undo._sync_pre_hooks.append(sync_pre)
-    ED_OT_undo._sync_post_hooks.append(sync_post)
+    ED_OT_undo._sync_pre_hooks += sync_pre,
+    ED_OT_undo._sync_post_hooks += sync_post,
 
     ED_OT_redo.add_poll(redo_poll)
     ED_OT_redo.add_pre(redo_pre, is_global=True)
-    ED_OT_redo._sync_post_hooks.append(sync_post)
-    ED_OT_redo._sync_pre_hooks.append(sync_pre)
+    ED_OT_redo._sync_post_hooks += sync_post,
+    ED_OT_redo._sync_pre_hooks += sync_pre,
 
     # Register handler that purges all undo states between blend file loads.
     bpy.app.handlers.load_post.append(purge)

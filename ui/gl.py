@@ -324,7 +324,7 @@ class Texture:
     batch:  gpu.types.GPUBatch   # Assigned in gl.init()
 
     def __new__(cls, *_):
-        cls._instances += [super().__new__(cls)]
+        cls._instances += super().__new__(cls),
         return cls._instances[-1]
 
     def __init__(self, size: tuple[int, int] = (100, 100)):

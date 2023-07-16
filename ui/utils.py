@@ -105,7 +105,7 @@ def set_focus(widget):
     if widget in stack:
         stack.remove(widget)
 
-    stack.append(widget)
+    stack += widget,
     widget.on_focus()
 
 
@@ -195,7 +195,7 @@ def add_hit_test(hook: Callable, space: str = 'TEXT_EDITOR', region: str = 'WIND
         art.cursor = cfunc(handler)
         editor[region] = handler
 
-    handler += [hook]
+    handler += hook,
     _capsules.append((handler, hook))
     return id(_capsules[-1])
 

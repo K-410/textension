@@ -118,7 +118,7 @@ class OpOverride:
                 finally:
                     return result
 
-            cls.overrides += [override(cls.__name__, name, wrapper)]
+            cls.overrides += override(cls.__name__, name, wrapper),
 
     @classmethod
     def remove_override(cls):

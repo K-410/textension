@@ -112,7 +112,7 @@ class CacheBase(dict):
 
     def __new__(cls):
         self = super().__new__(cls)
-        cls._caches.append(self)
+        cls._caches += self,
         return self
 
     def __missing__(self, key):

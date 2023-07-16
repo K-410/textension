@@ -19,10 +19,11 @@ def iter_brackets():
 
     lstrip = str.lstrip
     rstrip = str.rstrip
-    index = str.index
-    split = str.split
+    index  = str.index
+    split  = str.split
+    strlen = str.__len__
 
-    opener   = {")": "(", "]": "[", "}": "{"}
+    opener = {")": "(", "]": "[", "}": "{"}
 
     def find_end(line, sub, end):
         while True:
@@ -32,7 +33,6 @@ def iter_brackets():
                 if (len(a) - len(rstrip(a, "\\"))) % 2:
                     continue
             return end + len(sub)
-        
 
     PARENS  = 0
     SINGLE  = 1
@@ -45,7 +45,7 @@ def iter_brackets():
         ml_start = (-1, -1)  # Start of a multi-line string
 
         for li, line in enumerate(split(txt, "\n")):
-            end_pos = len(line)
+            end_pos = strlen(line)
 
             if ml:
                 if ml not in line:
@@ -55,15 +55,15 @@ def iter_brackets():
                 ml = False
                 pos = end
             else:
-                pos = end_pos - len(lstrip(line, junk))
+                pos = end_pos - strlen(lstrip(line, junk))
 
             while pos < end_pos:
                 c = line[pos]
                 if c in junk:
-                    pos = end_pos - len(lstrip(line[pos:], junk))
+                    pos = end_pos - strlen(lstrip(line[pos:], junk))
                     continue
                 elif c in "([{":
-                    stack += [(li, pos, c)]
+                    stack += (li, pos, c),
                 elif c in ")]}" and stack and (b := stack[-1])[2] is opener[c]:
                     yield (PARENS, b[:2], (li, pos + 1))
                     del stack[-1]
@@ -93,14 +93,14 @@ def iter_brackets():
                         if strict:
                             break
                         # Useful for detecting if we're in a string while typing.
-                        end = len(line) + 1
+                        end = strlen(line) + 1
 
                     yield (SINGLE, (li, pos), (li, end))
                     pos = end
                     continue
 
                 elif c is "#":
-                    yield (COMMENT, (li, pos), (li, pos + len(line[pos:]) + 1))
+                    yield (COMMENT, (li, pos), (li, pos + strlen(line[pos:]) + 1))
                     break  # Rest is comments.
                 pos += 1
 

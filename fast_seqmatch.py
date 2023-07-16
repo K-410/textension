@@ -23,7 +23,7 @@ class FastSequenceMatcher(SequenceMatcher, _TupleBase):
             b2j[key] = []
 
         for i, elt in enumerate(b):
-            b2j[elt] += [i]
+            b2j[elt] += i,
 
         if (n := (len(b) // 100 + 1)) >= 3:
             self.b2j = defaultdict(list, compress(b2j.items(), map(n.__gt__, map(len, b2j.values()))))

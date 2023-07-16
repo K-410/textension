@@ -380,8 +380,8 @@ class TEXT_OT_indent(Default):
                     length = 1
                     writestr = "\t"
 
-                line_strings.append(f"{writestr}{body}")
-                lengths.append(length)
+                line_strings += f"{writestr}{body}",
+                lengths += length,
 
             # Write the lines with new indentation
             text.cursor = ltop, 0, lbot, -1
@@ -466,13 +466,13 @@ class TEXT_OT_unindent(Default):
         for line in text.lines[ltop: lbot + 1]:
             indent = line.indent
             if not indent:
-                lengths.append(0)
+                lengths += 0,
                 continue
 
             # Remainder if the leading indent is unaligned
             i = indent % tab_width
-            set_indents.append((line, line.indent_level - (not i)))
-            lengths.append(i or tab_width)
+            set_indents += (line, line.indent_level - (not i)),
+            lengths += i or tab_width,
 
         if not set_indents:
             return OPERATOR_CANCELLED
@@ -631,7 +631,7 @@ def toggle_comment():
     for line_obj in lines[s1:s2 + 1]:
         body = line_obj.body
         if body.strip():
-            to_process.append(line_obj)
+            to_process += line_obj,
 
             lstripped = body.lstrip()
             level = min(level, len(body) - len(lstripped))

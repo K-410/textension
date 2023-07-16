@@ -34,7 +34,7 @@ def get_matches_curl(substr, strlen, find, selr):
         if idx in exclude or span in exclude:
             idx = find(substr, idx + 1)
             continue
-        match_indices.append(idx)
+        match_indices += idx,
         idx = find(substr, span)
     return match_indices
 
@@ -44,7 +44,7 @@ def get_matches(substr, strlen, find):
     chr_idx = find(substr, 0)
 
     while chr_idx is not -1:
-        match_indices.append(chr_idx)
+        match_indices += chr_idx,
         chr_idx = find(substr, chr_idx + strlen)
 
     return match_indices
@@ -134,9 +134,9 @@ def get_non_wrapped_pts(st, substr, selr, lineh, wunits):
             end_idx = match_idx + strlen
             end_idx -= 1 + (x2 - hor_max_px) // cw if x2 > hor_max_px else 0
 
-            pts.append((Vector((x1 + cw * char_offset, y1)),
-                        Vector((x2, y1)),
-                        body[match_idx + char_offset:end_idx]))
+            pts += (Vector((x1 + cw * char_offset, y1)),
+                    Vector((x2, y1)),
+                    body[match_idx + char_offset:end_idx]),
 
     return pts, scrollpts, y_offset
 
@@ -187,7 +187,6 @@ def calc_top(lines, maxy, lineh, rh, yoffs, char_max):
 # Find all occurrences on scrollbar
 def scrollpts_get(st, substr, wu, vspan_px, rw, rh, lineh):
     scrollpts = []
-    append = scrollpts.append
     top_margin = int(0.4 * wu)
 
     # if p().scrollbar.show_scrollbar:
@@ -215,7 +214,7 @@ def scrollpts_get(st, substr, wu, vspan_px, rw, rh, lineh):
         body = line.body.lower() if not prefs.case_sensitive else line.body
         if substr in body:
             y = scrolltop - i * j // wrh
-            append((Vector((sx_1, y)), Vector((sx_2, y))))
+            scrollpts += (Vector((sx_1, y)), Vector((sx_2, y))),
     return scrollpts
 
 
@@ -285,7 +284,7 @@ def get_wrapped_pts(st, substr, selr, lineh, wunits):
         # local text coordinates and wrap indices for each line.
         for idx, char in enumerate(body):
             if idx - w_start >= char_max:
-                w_list.append(body[w_start:w_end])
+                w_list += body[w_start:w_end],
                 w_count += 1
                 coords.extend([(i, w_count) for i in range(w_end - w_start)])
                 w_start = w_end
@@ -293,7 +292,7 @@ def get_wrapped_pts(st, substr, selr, lineh, wunits):
             elif char in " -":
                 w_end = idx + 1
 
-        w_list.append(body[w_start:])
+        w_list += body[w_start:],
         w_end = w_start + (len(body) - w_start)
         w_count += 1
         coords.extend([(i, w_count) for i in range(w_end - w_start)])
@@ -334,7 +333,7 @@ def get_wrapped_pts(st, substr, selr, lineh, wunits):
                             text = w_list[w_indices[widx - 1]]
                         else:
                             text = body[start:widx]
-                        pts.append((co_1, co_2, text))
+                        pts += (co_1, co_2, text),
                         co_1 = Vector((x_offset + x_table[w_char], matchy))
                         end = midx
                         start += end
@@ -342,13 +341,13 @@ def get_wrapped_pts(st, substr, selr, lineh, wunits):
                         continue
                 text = body[match_idx:mspan][end:]
                 co_2 = Vector((x_offset + x_table[w_char] + cw, matchy))
-                pts.append((co_1, co_2, text))
+                pts += (co_1, co_2, text),
 
             else:
                 text = body[match_idx:mspan]
                 co_2 = co_1.copy()
                 co_2.x += cw * strlen
-                pts.append((co_1, co_2, text))
+                pts += (co_1, co_2, text),
 
         wrap_total += w_count + 1
         wrap_offset = lineh * wrap_total

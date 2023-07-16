@@ -288,7 +288,7 @@ def km_def(km: str, km_type: str, km_value: str, **kw):
     for key in ("ctrl", "alt", "shift", "repeat", "head"):
         kmi_new_kw[key] = kw.pop(key, False)
 
-    km_meta.append((km, km_type, km_value, kmi_new_kw, kw))
+    km_meta += (km, km_type, km_value, kmi_new_kw, kw),
 
 
 # Not sure how to get this via RNA.
@@ -390,7 +390,7 @@ def on_rna_changed(key):
 def watch_rna(key, notify: Callable, args=()):
     if not (hooks := _rna_hooks.setdefault(key, [])):
         bpy.msgbus.subscribe_rna(key=key, owner=key, args=(key,), notify=on_rna_changed)
-    hooks.append((notify, args))
+    hooks += (notify, args),
 
 
 # A wrapper version of 'tag_userdef_modified'.
@@ -609,7 +609,7 @@ class TextOperator(bpy.types.Operator):
             kmi = km.keymap_items.new(cls.bl_idname, type, value, **kw1)
             for name, value in kw2.items():
                 setattr(kmi.properties, name, value)
-            keymaps += [(km, kmi)]
+            keymaps += (km, kmi),
         cls._keymaps = keymaps
 
     @classmethod
@@ -714,7 +714,7 @@ class LinearStack:
         return self.adapter.poll_redo()
 
     def move_and_set(self, from_stack, to_stack):
-        to_stack.append(from_stack.pop())
+        to_stack += from_stack.pop(),
         state = self.undo[-1]
         self.adapter.set_string(state.data)
 
@@ -742,7 +742,7 @@ class LinearStack:
 
         if not can_group or now - self.last_push > 0.5 or \
                 adapter.get_should_split(can_group):
-            undo += [state]
+            undo += state,
         else:
             undo[-1] = state
 
