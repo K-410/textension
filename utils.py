@@ -64,6 +64,20 @@ def inline_class(*args, star=True):
 
 
 @inline
+def lazy_overwrite(method):
+    class lazy_overwrite:
+        __slots__ = ("func", "name")
+        def __init__(self, func):
+            self.func = func
+            self.name = func.__name__
+
+        def __get__(self, obj, objclass):
+            ret = obj.__dict__[self.name] = self.func(obj)
+            return ret
+    return lazy_overwrite
+
+
+@inline
 def noop(*args, **kw) -> None:
     return None.__init__
 
