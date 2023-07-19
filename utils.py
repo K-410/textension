@@ -774,5 +774,7 @@ class _pydevd_repr_override_meta(type):
 
 # Base for aggregate initialization classes.
 class _TupleBase(tuple, metaclass=_pydevd_repr_override_meta):
-    __init__ = tuple.__init__
-    __new__  = tuple.__new__
+    @inline
+    def __init__(self, elements): return tuple.__init__
+    @inline
+    def __new__(self, elements): return tuple.__new__
