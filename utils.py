@@ -77,6 +77,28 @@ def lazy_overwrite(method):
     return lazy_overwrite
 
 
+def lazy_forwarder(attr, path):
+    from operator import attrgetter
+    getter = attrgetter(path)
+    @inline
+    class lazy_overwrite:
+        def __get__(self, obj, objclass):
+            ret = obj.tree_name.value
+            obj.string_name = ret
+            return ret
+            ret = obj.__dict__[attr] = getter(obj)
+            return ret
+    return lazy_overwrite
+
+
+def soft_property(custom_getter):
+    @inline
+    class _soft_property:
+        __slots__ = ()
+        __get__   = custom_getter
+    return _soft_property
+
+
 @inline
 def noop(*args, **kw) -> None:
     return None.__init__
@@ -642,33 +664,37 @@ class Adapter:
     def get_string(self) -> str:
         return ""
 
+    @inline
     def set_string(self, string) -> None:
-        pass
+        return noop
 
+    @inline
     def get_cursor(self):
-        pass
+        return noop_noargs
 
+    @inline
     def set_cursor(self, cursor):
-        pass
+        return noop
 
     def get_should_split(self, hint: bool) -> bool:
         return hint
 
     # Update hook on stack initialization and undo push.
+    @inline
     def update(self, restore=False):
-        pass
+        return noop
 
-    # These are fallback polls for when LinearStack.poll_undo/redo fails but
-    # we still want to consume the undo event for focused Widgets.
-    def poll_undo(self):
-        return False
+    # If LinearStack.poll_undo/redo fails, we still want a way to eat the
+    # event. This is primarily for focused Widgets.
+    @inline
+    def poll_undo(self) -> bool:
+        return bool  # Returns False
 
-    def poll_redo(self):
-        return False
+    @inline
+    def poll_redo(self) -> bool:
+        return bool  # Returns False
 
-    @property
-    def is_valid(self):
-        return True
+    is_valid: bool = True
 
     def __repr__(self):
         return f"{type(self).__name__}"
@@ -768,11 +794,12 @@ class LinearStack:
         if self.undo:
             self.undo[-1].cursor2 = self.adapter.get_cursor()
 
-    def poll_undo(self):
+    def poll_undo(self) -> bool:
+        # The init step doesn't count towards undoable steps.
         return len(self.undo) > 1 or self.adapter.poll_undo()
 
-    def poll_redo(self):
-        return bool(self.undo) or self.adapter.poll_redo()
+    def poll_redo(self) -> bool:
+        return bool(self.redo or self.adapter.poll_redo())
 
 
 # pydevd substitutes tuple subclass instances' own __repr__ with a useless
@@ -787,7 +814,7 @@ class _pydevd_repr_override_meta(type):
 
 
 # Base for aggregate initialization classes.
-class _TupleBase(tuple, metaclass=_pydevd_repr_override_meta):
+class Aggregation(tuple, metaclass=_pydevd_repr_override_meta):
     @inline
     def __init__(self, elements): return tuple.__init__
     @inline

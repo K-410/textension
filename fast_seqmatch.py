@@ -1,10 +1,10 @@
-from textension.utils import _TupleBase, _named_index
+from textension.utils import Aggregation, _named_index
 from collections import defaultdict
 from itertools import compress
 from difflib import SequenceMatcher
 
 
-class FastSequenceMatcher(SequenceMatcher, _TupleBase):
+class FastSequenceMatcher(SequenceMatcher, Aggregation):
     isjunk     = None
     opcodes    = None
     autojunk   = True

@@ -1,6 +1,10 @@
 # This plugin implements an experimental undo stack for texts.
+# This affects the operators:
+# - ED_OT_undo:         Resync when undoing (ctrl z)
+# - ED_OT_redo:         Resync when redoing (ctrl shift z)
+# - ED_OT_undo_history: Resync when undoing a specific undo step.
 
-from textension.utils import LinearStack, Adapter, TextOperator, _check_type, close_cells, set_name, text_from_id, iter_spaces, unsuppress
+from textension.utils import LinearStack, Adapter, TextOperator, _check_type, close_cells, set_name, text_from_id, iter_spaces, unsuppress, inline_class, noop_noargs
 from textension.core import ensure_cursor_view
 from textension import utils
 from textension.overrides import override, restore_capsules, _get_wmOperatorType
@@ -121,16 +125,14 @@ class TextAdapter(Adapter):
 
 
 # Dummy stack. Makes it easier to write generic code for undo/redo.
-class _NO_STACK(LinearStack):
-    undo = redo = ()
-    __bool__ = False.__bool__
-    def __init__(self, adapter: Adapter):
-        super().__init__(adapter)
-        self.undo = self.redo = ()
+@inline_class(Adapter())
+class NO_STACK(LinearStack):
+    undo = ()
+    redo = ()
 
-    # Make noop.
-    def push_intermediate_cursor(self):
-        pass
+    __bool__ = bool
+
+    push_intermediate_cursor = noop_noargs
 
 
 from operator import attrgetter, not_
@@ -170,9 +172,6 @@ def sync_post():
 
     sync_map.clear()
     sync_ids.clear()
-
-
-NO_STACK = _NO_STACK(Adapter())
 
 
 @bpy.app.handlers.persistent
@@ -250,11 +249,11 @@ def get_active_stack():
 
 
 def undo_poll():
-    return get_active_stack().undo
+    return get_active_stack().poll_undo()
 
 
 def redo_poll():
-    return get_active_stack().redo
+    return get_active_stack().poll_redo()
 
 
 def undo_pre():
@@ -349,7 +348,7 @@ def enable():
 
     # Override ED_OT_undo and ED_OT_redo's poll/exec methods to use the new
     # undo stack when the cursor is inside the text editor.
-    from textension.overrides.default import ED_OT_undo, ED_OT_redo
+    from textension.overrides.default import ED_OT_undo, ED_OT_redo, ED_OT_undo_history
     ED_OT_undo.add_poll(undo_poll)
     ED_OT_undo.add_pre(undo_pre, is_global=True)
     ED_OT_undo._sync_pre_hooks += sync_pre,
@@ -359,6 +358,9 @@ def enable():
     ED_OT_redo.add_pre(redo_pre, is_global=True)
     ED_OT_redo._sync_post_hooks += sync_post,
     ED_OT_redo._sync_pre_hooks += sync_pre,
+
+    ED_OT_undo_history._sync_pre_hooks += sync_pre,
+    ED_OT_undo_history._sync_post_hooks += sync_post,
 
     # Register handler that purges all undo states between blend file loads.
     bpy.app.handlers.load_post.append(purge)

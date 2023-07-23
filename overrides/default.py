@@ -935,7 +935,6 @@ class UndoOverride(Default):
     def __init_subclass__(cls):
         super().__init_subclass__()
         cls._poll_hooks = []
-        # cls._exec_hooks = []
         cls._sync_pre_hooks = []
         cls._sync_post_hooks = []
 
@@ -951,13 +950,7 @@ class UndoOverride(Default):
         for hook in self._poll_hooks:
             if result := hook():
                 return result
-
-        default_poll = self.default()
-
-        # We must sync the texts.
-        if default_poll:
-            pass
-        return default_poll
+        return self.default()
 
     def exec(self):
         if self.run_pre_hooks():
@@ -976,12 +969,21 @@ class ED_OT_redo(UndoOverride):
     pass
 
 
+class ED_OT_undo_history(UndoOverride):
+
+    # Only ED_OT_undo_history has an invoke method.
+    def invoke(self):
+        with run_sync_hooks(self):
+            return self.default()
+
+
 def apply_default_overrides():
     for cls in Default.operators:
         cls.apply_override()
 
     ED_OT_undo.apply_override()
     ED_OT_redo.apply_override()
+    ED_OT_undo_history.apply_override()
 
 
 def remove_default_overrides():
@@ -990,3 +992,4 @@ def remove_default_overrides():
 
     ED_OT_undo.remove_override()
     ED_OT_redo.remove_override()
+    ED_OT_undo_history.remove_override()
