@@ -821,19 +821,9 @@ class LinearStack:
         return bool(self.redo or self.adapter.poll_redo())
 
 
-# pydevd substitutes tuple subclass instances' own __repr__ with a useless
-# string. This is a workaround specifically for debugging purposes.
-class _pydevd_repr_override_meta(type):
-    @property
-    def __name__(cls):
-        import sys
-        for v in filter(cls.__instancecheck__, sys._getframe(1).f_locals.values()):
-            return cls.__repr__(v)
-        return super().__name__
-
-
 # Base for aggregate initialization classes.
-class Aggregation(tuple, metaclass=_pydevd_repr_override_meta):
+class Aggregation(tuple):
+    __slots__ = ()
     @inline
     def __init__(self, elements): return tuple.__init__
     @inline
