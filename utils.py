@@ -99,6 +99,19 @@ def soft_property(custom_getter):
     return _soft_property
 
 
+def _soft_forwarder(data_path: str):
+    """Forwarding descriptor that can be overwritten like any attribute."""
+    
+    return soft_property(property(operator.attrgetter(data_path)).__get__)
+
+@inline
+class _soft_attribute_error:
+    def __new__(cls):
+        def raise_attribute_error(self):
+            raise AttributeError
+        return soft_property(raise_attribute_error)
+
+
 @inline
 def noop(*args, **kw) -> None:
     return None.__init__
@@ -150,6 +163,11 @@ def _get_dict(typ) -> dict:
 @inline
 def truthy_noargs() -> True:
     return True.__bool__
+
+
+@inline
+def truthyish_noargs() -> int:
+    return True.__sizeof__
 
 
 def safe_redraw():
@@ -213,7 +231,8 @@ def _descriptor(func, setter=None):
 
 
 def _forwarder(*strings: str):
-    return _descriptor(operator.attrgetter(*strings))
+    return property(operator.attrgetter(*strings))
+
 
 try:
     from collections import _tuplegetter
@@ -277,9 +296,9 @@ def _check_type(obj, *types):
 
 
 def close_cells(*args):
-    """Close ``args`` over a function."""
-    import ctypes
-    from types import CellType
+    """Close ``args`` over a function. Used for binding closures to functions
+     created inside a loop or for explicit ordering.
+     """
     def inner(func, args=args):
         ctypes.pythonapi.PyFunction_SetClosure(func, tuple(map(CellType, args)))
         return func
