@@ -630,7 +630,9 @@ def toggle_comment():
     # 3. Skip empty lines for now.
     for line_obj in lines[s1:s2 + 1]:
         body = line_obj.body
-        if body.strip():
+
+        # Don't consider empty lines for toggling, unless the cursor is on it.
+        if body.strip() or s1 == s2:
             to_process += line_obj,
 
             lstripped = body.lstrip()
