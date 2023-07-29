@@ -158,11 +158,12 @@ def ensure_cursor_view(action: str = "lazy", smooth=True, threshold=2, speed=1.0
 
     text: bpy.types.Text = getattr(_context, "edit_text", None)
 
-    if not isinstance(text, bpy.types.Text):
+    st = _context.space_data
+
+    if not isinstance(text, bpy.types.Text) or st.text != text:
         return
 
     line, column = text.cursor_focus
-    st = _context.space_data
 
     line_offset = st.runtime._offs_px[1] / st.line_height
     top = st.internal.top + line_offset
