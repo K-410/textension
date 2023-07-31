@@ -385,6 +385,7 @@ class TextDraw(Widget):
     """Implements functionality for drawing non-rich text."""
 
     font_size: int  = 16
+    font_id:   int  = 0
     top: float      = 0.0
 
     width: int = 1
@@ -441,17 +442,18 @@ class TextDraw(Widget):
 
     @property
     def line_offset_px(self):
-        """The offset into the next line in pixels."""
+        """The pixel offset into the current line from top."""
         return int(self.top % 1.0 * self.line_height)
 
     @property
     def line_height(self):
         """The line height in pixels."""
+        font_id = self.font_id
         # At 1.77 scale, dpi is halved and pixel_size is doubled. Go figure.
-        blf.size(1, self.font_size, int(_system.dpi * _system.pixel_size))
+        blf.size(font_id, self.font_size, int(_system.dpi * _system.pixel_size))
         # The actual height. Ascender + descender + x-height.
         # NOTE: This returns a float, but when computing 
-        return int(blf.dimensions(1, "Ag")[1] * self.line_padding)
+        return int(blf.dimensions(font_id, "Ag")[1] * self.line_padding)
 
     @property
     def num_lines(self):
@@ -521,6 +523,26 @@ class TextDraw(Widget):
     def size(self):
         return self.rect.width, self.rect.height
 
+    def get_drawable_lines(self):
+        start = int(self.top)
+        end = int(start + (self.rect.height // self.line_height) + 2)
+        return islice(self.lines, start, end)
+    
+    def get_surface(self):
+        # There's no scissor/clip as of 3.2, so we draw to an off-screen
+        # surface instead. The surface is cached for performance reasons.
+        surface = self.surface
+        if self.surface_size != surface.size:
+            surface.resize(self.surface_size)
+        return surface
+
+    def get_text_y(self):
+        line_height = self.line_height
+        # Pad the glyph baseline so the text is centered on the line.
+        y_pad = (line_height - blf.dimensions(self.font_id, "x")[1]) // 2
+        y = self.rect.height - line_height + self.line_offset_px + y_pad
+        return y
+
 
 class InputAdapter(Adapter):
     def __init__(self, input: "Input"):
@@ -566,6 +588,7 @@ class Input(TextDraw):
     width = 300
     height = 200
 
+    font_id = 0
     background_color = 0.15, 0.15, 0.15, 1.0
     border_color     = 0.3, 0.3, 0.3, 1.0
 
@@ -654,17 +677,17 @@ class Input(TextDraw):
             self.set_cursor(0, len(string))
 
     def hit_test_column(self, x: int):
-        blf.size(0, self.font_size)
+        blf.size(self.font_id, self.font_size)
         string = self.string
 
         pos = len(string)
-        span = blf.dimensions(0, string)[0]
+        span = blf.dimensions(self.font_id, string)[0]
         if x >= span:
             return pos
         
         from itertools import repeat
         from operator import itemgetter
-        a = map(itemgetter(0), map(blf.dimensions, repeat(0), string))
+        a = map(itemgetter(0), map(blf.dimensions, repeat(self.font_id), string))
 
         span = 0
         for index, width in enumerate(a):
@@ -687,14 +710,14 @@ class Input(TextDraw):
                        w - (pad * 2) - left_pad,
                        h - (pad * 2))
 
-        blf.size(0, self.font_size)
+        blf.size(self.font_id, self.font_size)
 
         cx = x + self.focus_x
         cy = y + pad
         cw = 1  # Caret width
         ch = h - (pad * 2)
 
-        y_pad = (h - blf.dimensions(0, "x")[1]) // 2
+        y_pad = (h - blf.dimensions(self.font_id, "x")[1]) // 2
         x_pad = y_pad * 0.2
 
         if self.is_focused:
@@ -713,13 +736,13 @@ class Input(TextDraw):
 
         # Draw the string.
         if string := self.string:
-            blf.color(0, 1, 1, 1, 1)
+            blf.color(self.font_id, 1, 1, 1, 1)
         else:
             string = self.hint
             left_pad += 3
-            blf.color(0, 0.5, 0.5, 0.5, 1.0)
-        blf.position(0, x + left_pad + x_pad, y + y_pad, 0)
-        blf.draw(0, string)
+            blf.color(self.font_id, 0.5, 0.5, 0.5, 1.0)
+        blf.position(self.font_id, x + left_pad + x_pad, y + y_pad, 0)
+        blf.draw(self.font_id, string)
 
     def on_parent_focus(self, select=True):
         if select:
@@ -727,16 +750,16 @@ class Input(TextDraw):
 
     def get_selection_offsets(self):
         start, end = self.range
-        blf.size(0, self.font_size)
-        x = blf.dimensions(0, self.string[:start])[0]
-        span = blf.dimensions(0, self.string[start:end])[0]
+        blf.size(self.font_id, self.font_size)
+        x = blf.dimensions(self.font_id, self.string[:start])[0]
+        span = blf.dimensions(self.font_id, self.string[start:end])[0]
         return x, span
 
     # The local x-coordinate of the cursor focus.
     @property
     def focus_x(self):
-        blf.size(0, self.font_size)
-        return blf.dimensions(0, self.string[:self.focus])[0]
+        blf.size(self.font_id, self.font_size)
+        return blf.dimensions(self.font_id, self.string[:self.focus])[0]
 
     # The sorted selection range.
     @property
@@ -912,6 +935,8 @@ class ListBox(TextDraw):
     width  = 300
     height = 200
 
+    font_id = 1
+
     def __init__(self, parent: Widget = None):
         super().__init__(parent=parent)
 
@@ -967,34 +992,19 @@ class ListBox(TextDraw):
             self.active.set_index(0, redraw_on_modify=False)
             # self.hover.set_index(-1, redraw_on_modify=False)
 
-        w, h = size = self.surface_size
-
-        # There's no scissor/clip as of 3.2, so we draw to an off-screen
-        # surface instead. The surface is cached for performance reasons.
-        if size != self.surface.size:
-            self.surface.resize(size)
-            self.surface.size = size
-
-        # The vertical pixel offset into the current line (from top).
-        offset = self.line_offset_px
+        surface = self.get_surface()
 
         text_x = self.start_x
         line_height = self.line_height
-        cache_key = (offset, self.view_key, line_height, size, text_x)
+        cache_key = (self.line_offset_px, self.view_key, line_height, surface.size, text_x)
 
         # The surface must be redrawn.
         if cache_key != self.cache_key:
             self.cache_key = cache_key
 
-            start = int(self.top)
-            end = 2 + start + (h // line_height)
-            # Pad the glyph baseline so the text is centered on the line.
-            y_pad = (line_height - blf.dimensions(1, "x")[1]) // 2
-            text_y = h - line_height + offset + y_pad
-
+            text_y = self.get_text_y()
             with self.surface.bind():
-                # self.surface.color_texture.clear(format='FLOAT', value=(0.0, 0.2, 0.2, 0.00001))
-                for entry in islice(self.lines, start, end):
+                for entry in self.get_drawable_lines():
                     self.draw_entry(entry, text_x, text_y)
                     text_y -= line_height
 
@@ -1030,9 +1040,9 @@ class ListBox(TextDraw):
         self.draw_string(entry.string, x, y)
 
     def draw_string(self, string: str, x: int, y: int):
-        blf.position(1, x, y, 0)
-        blf.color(1, *self.foreground_color)
-        blf.draw(1, string)
+        blf.position(self.font_id, x, y, 0)
+        blf.color(self.font_id, *self.foreground_color)
+        blf.draw(self.font_id, string)
 
     def _validate_view(self) -> bool:
         # If ``self.lines`` changes, reset top, hover and selection.
@@ -1080,6 +1090,7 @@ class TextView(TextDraw):
     lines: list[TextLine]
 
     cache_key:   tuple
+    font_id = 0
 
     def __init__(self, parent: Widget):
         super().__init__(parent=parent)
@@ -1087,10 +1098,105 @@ class TextView(TextDraw):
         self.rect.width = 250
 
         # XXX: Testing
-        self.lines.append(TextLine("Hello World 1"))
-        self.lines.append(TextLine("Second line....."))
-        self.lines.append(TextLine("More lines"))
-        self.lines.append(TextLine("Additional content that spans even more"))
+        self.lines += map(TextLine,
+"""
+
+
+class Suggestions(ui.widgets.ListBox):
+    st:  bpy.types.SpaceTextEditor
+    _temp_lines             = []
+
+    is_visible: bool        = False
+    last_position           = (0, 0)
+    sync_key                = ()
+    last_nlines             = 0
+
+    background_color        = 0.15, 0.15, 0.15, 1.0
+    border_color            = 0.30, 0.30, 0.30, 1.0
+
+    active_background_color = 0.16, 0.22, 0.33, 1.0
+    active_border_color     = 0.16, 0.29, 0.5, 1.0
+    active_border_width     = 1
+
+    hover_background_color  = 1.0, 1.0, 1.0, 0.1
+    hover_border_color      = 1.0, 1.0, 1.0, 0.4
+    hover_border_width      = 1
+
+    preferences: "TEXTENSION_PG_suggestions"
+
+    line_padding           = 1.25
+    text_padding           = 5
+    scrollbar_width        = 16
+    fixed_font_size        = 16
+    use_auto_font_size     = True
+    use_bold_matches       = False
+    foreground_color       = (0.4, 0.7, 1.0, 1.0)
+    match_foreground_color = (0.87, 0.60, 0.25, 1.0)
+
+    def __init__(self, st: bpy.types.SpaceTextEditor):
+        super().__init__(parent=None)
+
+        self.update_uniforms(shadow=(0, 0, 0, 0.5))
+        self.description = Description(self)
+        self.st = st
+
+    @property
+    def font_size(self):
+        if self.use_auto_font_size:
+            return self.st.font_size
+        return self.fixed_font_size
+
+    def poll(self) -> bool:
+        if text := self.is_visible and _context.edit_text:
+            if _get_sync_key(text) == self.sync_key:
+                return bool(self.lines)
+            # TODO: Setting this in the poll isn't a good idea.
+            self.last_position = -1, -1
+            self.sync_key = ()
+        return False
+
+    def sync_cursor(self, line_index) -> None:
+        self.sync_key = _get_sync_key(_context.edit_text)
+        self.last_position = line_index, self.sync_key[1]
+        return None
+
+    def draw(self) -> None:
+        # Align the box below the cursor.
+        st = _context.space_data
+        x, y = st.region_location_from_cursor(*self.last_position)
+        assert not x is -1 is y, f"last_position: {self.last_position}"
+
+        w, h = self.rect.size
+
+        y -= h - st.offsets[1] - round(4 * _system.wu * 0.05)
+
+        self.rect.draw(x, y, w, h)
+        super().draw()  # ListBox.draw
+        self.description.draw()
+
+    def draw_entry(self, entry, x: int, y: int):
+        length = entry.get_completion_prefix_length()
+        string = entry.name
+
+        if length == 0:
+            self.draw_string(string, x, y)
+
+        else:
+            import blf
+            prefix = string[:length]
+
+            if self.use_bold_matches:
+                blf.enable(1, BLF_BOLD)
+
+            blf.position(1, x, y, 0)
+            blf.color(1, *self.match_foreground_color)
+            blf.draw(1, prefix)
+            blf.disable(1, BLF_BOLD)
+
+            x += blf.dimensions(1, prefix)[0]
+            self.draw_string(string[length:], x, y)
+""".strip().splitlines()
+    )
 
     @property
     def width(self):
@@ -1107,35 +1213,19 @@ class TextView(TextDraw):
         x = p_rect.x + p_rect.width
         y = p_rect.y + p_rect.height - h
 
-        # if x + w > _context.region.width:
-        #     x -= r.width
-        #     y -= r.height
-
         rect.draw(x, y, w, h)   # Draw the background.
-        self._draw_text()       # Draw the text.
+        self.draw_text()        # Draw the text.
         super().draw()          # Draw the surface.
 
-    def _draw_text(self):
-        line_height = self.line_height
+    def draw_text(self):
+        surface = self.get_surface()
 
-        r = self.rect
-        h = r.height
-        y = self.parent.y - 100
-        size = r.inner_size
-        y = h - line_height
-        # TODO: This is duplicate code of TextDraw
-        # There's no scissor/clip as of 3.2, so we draw to an off-screen
-        # surface instead. The surface is cached for performance reasons.
-        surface = self.surface
-        if size != surface.size:
-            surface.resize(size)
+        line_height = self.line_height
+        text_y = self.get_text_y()
 
         with surface.bind():
-            # surface.color_texture.clear(format='FLOAT', value=(0.2, 0.0, 0.2, 0.00001))
-            blf.size(0, 15, 72)
-            blf.color(0, 1, 1, 1, 1)
-            for line in self.lines:
-                blf.position(0, 0, y, 0)
-                # blf.position(0, 0, 0, 0)
-                blf.draw(0, line.string)
-                y -= self.line_height
+            blf.color(self.font_id, 1, 1, 1, 1)
+            for line in self.get_drawable_lines():
+                blf.position(self.font_id, 0, text_y, 0)
+                blf.draw(self.font_id, line.string)
+                text_y -= line_height
