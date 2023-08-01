@@ -1092,111 +1092,15 @@ class TextView(TextDraw):
     cache_key:   tuple
     font_id = 0
 
+    def set_from_string(self, string: str = ()):
+        if string.__class__ is str:
+            string = map(TextLine, string.splitlines())
+        self.lines[:] = string
+
     def __init__(self, parent: Widget):
         super().__init__(parent=parent)
         self.rect.height = 100
         self.rect.width = 250
-
-        # XXX: Testing
-        self.lines += map(TextLine,
-"""
-
-
-class Suggestions(ui.widgets.ListBox):
-    st:  bpy.types.SpaceTextEditor
-    _temp_lines             = []
-
-    is_visible: bool        = False
-    last_position           = (0, 0)
-    sync_key                = ()
-    last_nlines             = 0
-
-    background_color        = 0.15, 0.15, 0.15, 1.0
-    border_color            = 0.30, 0.30, 0.30, 1.0
-
-    active_background_color = 0.16, 0.22, 0.33, 1.0
-    active_border_color     = 0.16, 0.29, 0.5, 1.0
-    active_border_width     = 1
-
-    hover_background_color  = 1.0, 1.0, 1.0, 0.1
-    hover_border_color      = 1.0, 1.0, 1.0, 0.4
-    hover_border_width      = 1
-
-    preferences: "TEXTENSION_PG_suggestions"
-
-    line_padding           = 1.25
-    text_padding           = 5
-    scrollbar_width        = 16
-    fixed_font_size        = 16
-    use_auto_font_size     = True
-    use_bold_matches       = False
-    foreground_color       = (0.4, 0.7, 1.0, 1.0)
-    match_foreground_color = (0.87, 0.60, 0.25, 1.0)
-
-    def __init__(self, st: bpy.types.SpaceTextEditor):
-        super().__init__(parent=None)
-
-        self.update_uniforms(shadow=(0, 0, 0, 0.5))
-        self.description = Description(self)
-        self.st = st
-
-    @property
-    def font_size(self):
-        if self.use_auto_font_size:
-            return self.st.font_size
-        return self.fixed_font_size
-
-    def poll(self) -> bool:
-        if text := self.is_visible and _context.edit_text:
-            if _get_sync_key(text) == self.sync_key:
-                return bool(self.lines)
-            # TODO: Setting this in the poll isn't a good idea.
-            self.last_position = -1, -1
-            self.sync_key = ()
-        return False
-
-    def sync_cursor(self, line_index) -> None:
-        self.sync_key = _get_sync_key(_context.edit_text)
-        self.last_position = line_index, self.sync_key[1]
-        return None
-
-    def draw(self) -> None:
-        # Align the box below the cursor.
-        st = _context.space_data
-        x, y = st.region_location_from_cursor(*self.last_position)
-        assert not x is -1 is y, f"last_position: {self.last_position}"
-
-        w, h = self.rect.size
-
-        y -= h - st.offsets[1] - round(4 * _system.wu * 0.05)
-
-        self.rect.draw(x, y, w, h)
-        super().draw()  # ListBox.draw
-        self.description.draw()
-
-    def draw_entry(self, entry, x: int, y: int):
-        length = entry.get_completion_prefix_length()
-        string = entry.name
-
-        if length == 0:
-            self.draw_string(string, x, y)
-
-        else:
-            import blf
-            prefix = string[:length]
-
-            if self.use_bold_matches:
-                blf.enable(1, BLF_BOLD)
-
-            blf.position(1, x, y, 0)
-            blf.color(1, *self.match_foreground_color)
-            blf.draw(1, prefix)
-            blf.disable(1, BLF_BOLD)
-
-            x += blf.dimensions(1, prefix)[0]
-            self.draw_string(string[length:], x, y)
-""".strip().splitlines()
-    )
 
     @property
     def width(self):
