@@ -75,18 +75,14 @@ class Widget:
 
         self.update_uniforms(
             background_color=self.background_color,
-            border_color=self.border_color,
-            border_width=self.border_width,
-            corner_radius=self.corner_radius)
+            border_color    =self.border_color,
+            border_width    =self.border_width,
+            corner_radius   =self.corner_radius)
         
     def hit_test(self, x: float, y: float) -> bool:
-        """Hit test this widget and return the most refined result, which
+        """Hit test and return the most refined result, which
         can be this Widget, any of its children, or None.
         """
-        # from operator import methodcaller
-        # hit_test = methodcaller("hit_test", x, y)
-        # return next(filter(None, map(hit_test, self.children)), self)
-
         r = self.rect
         if 0.0 <= x - r.x <= r.width and 0.0 <= y - r.y <= r.height:
             for c in self.children:
@@ -112,6 +108,7 @@ class Widget:
 
     width  = _forwarder("rect.width")
     height = _forwarder("rect.height")
+
 
 # Used as a no-hit result when we just want to block.
 HIT_BLOCK = Widget()
@@ -146,28 +143,15 @@ class Thumb(Widget):
 
 
 class Scrollbar(Widget):
-    """Scrollbar for TextDraw objects.
+    """Scrollbar for TextDraw objects."""
 
-    Requires the Widget to implement the methods:
-
-    ``get_view_top``      The current position from 0.0 to 1.0, (top/bottom).
-    ``get_view_ratio``     The view pixels divided by span pixels.
-
-    in addition to the following attributes/properties:
-
-    ``scrollbar_width``  The preferred width of the scrollbar.
-    ``position``         A tuple of the Widget's x/y position.
-    ``size``             A tuple of the Widget's width and height.
-    """
-    # The parent TextDraw object this Scrollbar is associated with.
     parent: "TextDraw"
-    thumb: Thumb
+    thumb:   Thumb
 
-    axis: str
-
-    # Invisible gutter.
+    # These are for the scrollbar gutter (invisible).
     background_color = 0.0, 0.0, 0.0, 0.0
     border_color     = 0.0, 0.0, 0.0, 0.0
+
     thumb_offsets    = (0, 0)
 
     # For overriding textension.ui_scroll_lines behavior.
@@ -179,58 +163,45 @@ class Scrollbar(Widget):
         _check_type(parent, TextDraw)
 
         super().__init__(parent=parent)
-        self.init_thumb()
-        # TODO: Is this needed?
-        self.rect.x = parent.x + parent.width - self.width
-        self.rect.y = parent.y
-        self.rect.width = self.width
-        self.rect.height = parent.height
+        self.thumb = Thumb(scroll=self)
+
+        self.thumb.update_uniforms(
+            background_color=parent.scrollbar_thumb_background_color,
+            corner_radius   =parent.corner_radius,
+            border_color    =parent.scrollbar_thumb_border_color,
+            border_width    =parent.scrollbar_thumb_border_width)
+
         self.update_uniforms(
-            corner_radius=parent.corner_radius,
             background_color=parent.scrollbar_background_color,
-            border_color=parent.scrollbar_border_color)
+            corner_radius   =parent.corner_radius,
+            border_color    =parent.scrollbar_border_color)
 
     def on_activate(self):
         bpy.ops.textension.ui_scroll_lines('INVOKE_DEFAULT')
 
     def set_view(self, ratio: float):
+        """Transform the parent's view, aka scroll. Between 0-1."""
         self.parent.set_view(ratio)
 
-    def get_parent_height(self):
-        return self.parent.size[1]
-    
-    def init_thumb(self):
-        self.thumb = Thumb(scroll=self)
-        parent = self.parent
-        self.thumb.update_uniforms(
-            corner_radius=parent.corner_radius,
-            background_color=parent.scrollbar_thumb_background_color,
-            border_color=parent.scrollbar_thumb_border_color,
-            border_width=parent.scrollbar_thumb_border_width)
-
-    # XXX: ????????
-    def get_width(self):
-        return self.parent.scrollbar_width
-
-    # XXX: ????????
-    # So it can be overridden.
-    # def get_width(self) -> int:
-    #     return self.width
-
     def draw(self):
-        offset_y, height = self._compute_offsets()
+        """Draw the scrollbar."""
         parent = self.parent
+        offset_y, height = self._compute_offsets()
 
-        width = self.get_width() * (_system.wu * 0.05)
+        # Width is defined on parent and multiplied by ui scale.
+        width = parent.scrollbar_width * (_system.wu * 0.05)
+
+        # Position the scrollbar to the parent's right edge.
         x, y = parent.get_position()
         x += parent.width - width
+
         self.rect.draw(x, y, width, parent.height)
+
         if height > 0:
             self.thumb.rect.draw(x, y + offset_y, width, height)
 
     def _compute_offsets(self) -> tuple[int, int]:
         """Calculates the thumb's vertical offset and height."""
-
         parent = self.parent
         view_ratio = parent.get_view_ratio()
         parent_height = parent.height
@@ -244,11 +215,13 @@ class Scrollbar(Widget):
         return self.thumb_offsets
 
     @property
-    def thumb_height(self) -> int:
-        return self._compute_offsets()[1]
+    def difference_height(self):
+        """The difference in height between the parent and the thumb."""
+        return self.parent.height - self._compute_offsets()[1]
 
     @property
     def thumb_y(self) -> int:
+        """The y coordinate of the thumb."""
         return self._compute_offsets()[0]
 
     def hit_test(self, x, y):
@@ -384,16 +357,17 @@ class BoxResizer(Widget):
 class TextDraw(Widget):
     """Implements functionality for drawing non-rich text."""
 
-    font_size: int  = 16
-    font_id:   int  = 0
-    top: float      = 0.0
+    font_size: int = 16
+    font_id:   int = 0
 
-    width: int = 1
-    height: int = 1
+    top:       float = 0.0
+
+    width:     int = 1
+    height:    int = 1
 
     lines: list[TextLine]
-    foreground_color        = 0.4,  0.7, 1.0,  1.0
-    line_padding            = 1.25
+    foreground_color = 0.4,  0.7, 1.0,  1.0
+    line_padding     = 1.25
 
     scrollbar_width = 16
 
@@ -410,20 +384,16 @@ class TextDraw(Widget):
         self.update_uniforms(rect=(0, 0, 300, 200))
 
         self.lines = []
-        assert isinstance(self.width, int), self.width
-        assert isinstance(self.height, int), self.height
-        assert self.width > 0 and self.height > 0
+
+        _check_type(self.width, int)
+        _check_type(self.height, int)
+        assert self.width > 0 < self.height
+
         self.resizer = BoxResizer(self)
         self.surface = Texture((self.width, self.height))
 
         self.scrollbar = Scrollbar(parent=self)
         self.reset_cache()
-
-    # @property
-    # def surface_position(self) -> tuple[int, int]:
-    #     rect = self.rect
-    #     bw = rect.uniforms.border_width
-    #     return rect.x + bw, rect.y + bw
 
     @property
     def visible_lines(self) -> float:
@@ -471,7 +441,7 @@ class TextDraw(Widget):
     def get_position(self):
         rect = self.rect
         bw = rect.uniforms.border_width
-        return rect.x + bw, rect.y + bw
+        return rect[0] + bw, rect[1] + bw
 
     def reset_cache(self):
         """Causes the list to redraw its surface next time."""
@@ -517,15 +487,15 @@ class TextDraw(Widget):
     def surface_size(self) -> tuple[int, int]:
         rect = self.rect
         bw = (rect.uniforms.border_width * 2) - 1
-        return round(rect.width - bw), round(rect.height - bw)
+        return round(rect[2] - bw), round(rect[3] - bw)
 
     @property
     def size(self):
-        return self.rect.width, self.rect.height
+        return self.rect[2], self.rect[3]
 
     def get_drawable_lines(self):
         start = int(self.top)
-        end = int(start + (self.rect.height // self.line_height) + 2)
+        end = int(start + (self.rect[3] // self.line_height) + 2)
         return islice(self.lines, start, end)
     
     def get_surface(self):
@@ -565,7 +535,6 @@ class InputAdapter(Adapter):
 
     def poll_redo(self):
         return self.input is get_focus()
-
 
 
 def input_undo(meth):
@@ -1096,6 +1065,7 @@ class TextView(TextDraw):
         if string.__class__ is str:
             string = map(TextLine, string.splitlines())
         self.lines[:] = string
+        self.set_view(0.0)
 
     def __init__(self, parent: Widget):
         super().__init__(parent=parent)
