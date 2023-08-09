@@ -19,9 +19,14 @@ from types import CellType, FunctionType
 
 from operator import methodcaller, attrgetter
 from itertools import compress
+from functools import partial
 
 from sys import _getframe
 from time import monotonic
+
+from typing import TypeVar
+
+_T = TypeVar("_T")
 
 
 _system = bpy.context.preferences.system
@@ -30,9 +35,6 @@ _call = bpy.ops._op_call
 _editors: dict[str: dict] = {}
 _region_types = set(bpy.types.Region.bl_rna.properties['type'].enum_items.keys())
 _rna_hooks: dict[tuple, list[tuple[Callable, tuple]]] = {}
-
-# All possible cursors to pass Window.set_cursor()
-bl_cursor_types = set(bpy.types.Operator.bl_rna.properties['bl_cursor_pending'].enum_items.keys())
 
 is_spacetext = bpy.types.SpaceTextEditor.__instancecheck__
 
@@ -54,6 +56,13 @@ def inline(func):
         return func(*args, *posonly_args)
     else:
         return func()
+
+
+@inline
+def filtertrue(seq):
+    """Filter objects that are truthy."""
+    return partial(filter, None)
+
 
 def inline_class(*args, star=True):
     def wrapper(cls):
@@ -230,7 +239,7 @@ def _descriptor(func, setter=None):
     return property(_unbound_method(func), setter)
 
 
-def _forwarder(*strings: str):
+def _forwarder(*strings: str, rtype: _T = None) -> _T:
     return property(operator.attrgetter(*strings))
 
 
@@ -740,9 +749,12 @@ class Step:
 class LinearStack:
     __slots__ = ("undo", "redo", "last_push", "adapter")
 
+    undo: list[Step]
+    redo: list[Step]
+
     def __init__(self, adapter: Adapter):
-        self.undo: list[Step] = []
-        self.redo: list[Step] = []
+        self.undo = []
+        self.redo = []
 
         self.adapter   = adapter
         self.last_push = 0.0
@@ -774,13 +786,14 @@ class LinearStack:
 
     def move_and_set(self, from_stack, to_stack):
         to_stack += from_stack.pop(),
-        state = self.undo[-1]
+        state  = self.undo[-1]
+        cursor = state.cursor1
         self.adapter.set_string(state.data)
 
         if from_stack is self.undo:
-            self.adapter.set_cursor(state.cursor2 or state.cursor1)
-        else:
-            self.adapter.set_cursor(state.cursor1)
+            cursor = state.cursor2 or state.cursor1
+
+        self.adapter.set_cursor(cursor)
         self.adapter.update(restore=True)
 
     def restore_last(self):
@@ -821,10 +834,26 @@ class LinearStack:
         return bool(self.redo or self.adapter.poll_redo())
 
 
+# pydevd substitutes tuple subclass instances' own __repr__ with a useless
+# string. This is a workaround specifically for debugging purposes.
+class _pydevd_repr_override_meta(type):
+    @property
+    def __name__(cls):
+        import sys
+        frame = sys._getframe(1)
+        if frame.f_code is not cls.__repr__.__code__:
+            for v in filter(cls.__instancecheck__, frame.f_locals.values()):
+                return cls.__repr__(v)
+        return super().__name__
+
+
 # Base for aggregate initialization classes.
-class Aggregation(tuple):
+class Aggregation(tuple, metaclass=_pydevd_repr_override_meta):
     __slots__ = ()
     @inline
     def __init__(self, elements): return tuple.__init__
     @inline
     def __new__(self, elements): return tuple.__new__
+
+    def __repr__(self):
+        return f"{__class__.__name__}"
