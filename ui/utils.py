@@ -1,7 +1,11 @@
+"""Utilities for custom ui like drawing and hit testing."""
+
 from textension.utils import _context, noop, CFuncPtr, namespace, _check_type
 from textension.btypes import get_area_region_type, cast, SpaceType, get_space_type
 from textension import btypes
 
+from collections import defaultdict
+from itertools import repeat
 from typing import Optional, Callable, Union
 from operator import methodcaller
 import bpy
@@ -17,7 +21,7 @@ __all__ = [
 ]
 
 
-_editors = {}
+_editors = defaultdict(repeat(defaultdict(tuple)).__next__)
 _capsules = []
 # _leave_handlers = {}
 
@@ -79,16 +83,16 @@ def idle_update():
 
 
 def _hit_test(clear=False):
-    win = _context.window
+    window = _context.window
     region = _context.region
 
     try:
-        handler = _editors.get(_context.area.type, {}).get(region.type)
-    except AttributeError:
+        handler = _editors[_context.area.type][region.type]
+    except:  # AttributeError. Area or region is None. Nothing to hit test.
         return None
 
     if handler:
-        x, y = win.mouse
+        x, y = window.mouse
         if not any(map(methodcaller("__call__", x - region.x, y - region.y), handler)):
             if clear and runtime.hit:
                 runtime.hit.on_leave()
@@ -160,8 +164,8 @@ class HitTestHandler(list):
     @classmethod
     def iter_hooks(cls):
         try:
-            yield from _editors.get(_context.area.type, {}).get(_context.region.type, ())
-        except:
+            yield from _editors[_context.area.type][_context.region.type]
+        except:  # AttributeError. Area or region is None. Nothing to hit test.
             return None
 
 
