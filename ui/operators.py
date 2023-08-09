@@ -1,13 +1,14 @@
 # This module implements widget operators.
 
 from textension.utils import TextOperator, _system, safe_redraw, km_def, defer, is_spacetext, inline, set_name
-from textension.core import ensure_cursor_view, find_word_boundary
+from textension.core import find_word_boundary
 from .utils import runtime, _editors, _hit_test, get_mouse_region, set_hit, clear_widget_focus, _visible, HitTestHandler
-from .widgets import *
+from .widgets import Scrollbar, Widget, Thumb, EdgeResizer, BoxResizer, TextDraw, Input
 
 import time
 import bpy
-
+from functools import reduce
+from itertools import repeat
 
 def _find_scrollbar(elem: Widget):
     while elem:
@@ -40,9 +41,8 @@ class TEXTENSION_OT_ui_mouse(TextOperator):
         # A widget was hit tested isn't set as a hit. This happens when an
         # action zone overlaps the area which the hit test handler doesn't
         # detect. In this case the action zone takes precedence.
-        for hook in HitTestHandler.iter_hooks():
-            if hook(x, y):
-                return {'PASS_THROUGH'}
+        if any(map(reduce, HitTestHandler.iter_hooks(), repeat((x, y)))):
+            return {'PASS_THROUGH'}
 
         # At this point regular mouse events in the text editor are processed.
         # If any Widget is on the space_data's focus stack, defocus them.
@@ -130,7 +130,7 @@ class TEXTENSION_OT_ui_scroll_lines(TextOperator):
                    (y < thumb.y + thumb.height and self.lines < 0):
                         return
             self.repeat_delay = curr + 0.04
-            self.view.scroll(self.lines)
+            self.view.scroll(self.lines, "VERTICAL")
             _hit_test()
 
     def modal(self, context, event):
@@ -161,12 +161,15 @@ class TEXTENSION_OT_ui_scrollbar(TextOperator):
     """Activate the scrollbar so it can be dragged to transform the view."""
     bl_options = {'INTERNAL'}
 
+    axis: bpy.props.EnumProperty(items=(("VERTICAL", "Vertical", ""),
+                                        ("HORIZONTAL", "Horizontal", "")))
+
     def invoke(self, context, event):
         if not isinstance(runtime.hit, Thumb):
             return {'PASS_THROUGH'}
 
         self.scrollbar  = runtime.hit.parent
-        self.init_value = self.scrollbar.parent.get_view_top()
+        self.init_value = self.scrollbar.parent.get_view_position(self.axis)
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
@@ -175,16 +178,18 @@ class TEXTENSION_OT_ui_scrollbar(TextOperator):
             return {'CANCELLED'}
 
         elif event.type == 'MOUSEMOVE':
-            scrollbar = self.scrollbar
-            value     = self.init_value
+            scroll = self.scrollbar
+            value  = self.init_value
+            delta  = event.mouse_prev_press_y - event.mouse_y
+            diff   = event.mouse_prev_press_x - event.mouse_x
 
-            if abs(event.mouse_prev_press_x - event.mouse_x) < 140:
-                delta  = event.mouse_prev_press_y - event.mouse_y
-                parent_height = scrollbar.get_parent_height()
+            if self.axis == 'HORIZONTAL':
+                diff, delta = delta, -diff
 
-                height = parent_height - scrollbar.thumb_height
-                value += delta / max(1.0, height)
-            scrollbar.set_view(value)
+            if abs(diff) < 140:
+                value += delta / max(1.0, scroll.get_difference(self.axis))
+
+            scroll.set_view(value)
         return {'RUNNING_MODAL'}
 
 
@@ -195,6 +200,8 @@ class TEXTENSION_OT_ui_resize(TextOperator):
                ('VERTICAL', "Vertical", "Resize vertically"),
                ('CORNER', "Corner", "Resize from corner")))
     
+    subject: TextDraw
+
     @classmethod
     def poll(cls, context):
         return isinstance(runtime.hit, (EdgeResizer, BoxResizer))
@@ -203,49 +210,53 @@ class TEXTENSION_OT_ui_resize(TextOperator):
         self.subject = runtime.hit.get_subject()
 
         self.start_width, self.start_height = self.subject.rect.size
-        self.min_height = self.subject.line_height
-        self.min_width = int(150 * _system.wu * 0.05)
+
+        # Minimum height is a single line.
+        self.min_height = self.subject.line_height + (self.subject.rect.border_width * 2.0)
+        self.min_width  = int(150 * _system.wu * 0.05)
 
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+        if event.type in {'LEFTMOUSE', 'RIGHTMOUSE', 'ENTER', 'ESC', 'WINDOW_DEACTIVATE'}:
             # Clear resizer hover if the edges were clamped to area edges.
             _hit_test(clear=True)
             return {'CANCELLED'}
 
         elif event.type == 'MOUSEMOVE':
             subject = self.subject
-            x_delta = event.mouse_x - event.mouse_prev_press_x
-            y_delta = event.mouse_y - event.mouse_prev_press_y
-
-            x, y = subject.rect.position
-            w, h = subject.rect.size
+            rect = subject.rect
+            x, y, w, h = rect
 
             if self.axis in {'CORNER', 'HORIZONTAL'}:
+                x_delta = event.mouse_x - event.mouse_prev_press_x
                 w = max(self.min_width, self.start_width + x_delta)
-                # Clamp width
                 w -= max(0, (x + w) - context.region.width)
 
             if self.axis in {'CORNER', 'VERTICAL'}:
                 rh = context.region.height
-                # Clamp height
+                y_delta = event.mouse_y - event.mouse_prev_press_y
                 max_height = min(rh - (rh - (y + h)), self.start_height - y_delta)
                 h = max(self.min_height, max_height)
 
-                if isinstance(subject, TextDraw):
-                    # Vertically resizing past the bottom shifts the top.
-                    if subject.top > 0:
-                        # TODO: Not sure why -2 is needed.
-                        visible_lines = (h - 2) / subject.line_height
-                        shift = subject.top + visible_lines - len(subject.lines)
-                        if shift > 0.0:
-                            subject.set_top(subject.top - shift)
-            # subject.rect.size = (w, h)
-            # safe_redraw()
-            if test_and_update(subject.rect, "size", (w, h)):
-                safe_redraw()
+            rect.size = (w, h)
+
+            # Clamping. Only relevant for Widgets with surfaces.
+            if isinstance(subject, TextDraw):
+                # Clamp left
+                if subject.left > 0.0:
+                    shift = max(0, subject.left - subject.max_left)
+                    if shift > 0:
+                        subject.left = max(0, subject.left - shift)
+
+                # Clamp top
+                if subject.top > 0.0:
+                    shift = max(0.0, subject.top - subject.max_top)
+                    if shift > 0.0:
+                        subject.top = max(0, subject.top - shift)
+
+            safe_redraw()
         return {'RUNNING_MODAL'}
 
 
