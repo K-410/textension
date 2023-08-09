@@ -3,7 +3,8 @@
 from gpu.state import viewport_get, viewport_set, blend_set
 from gpu.types import GPUFrameBuffer, GPUTexture
 from mathutils import Vector
-from textension.utils import cm
+from textension.utils import cm, consume
+from itertools import starmap
 import gpu
 
 
@@ -219,9 +220,7 @@ class Rect(Vector):
     def draw(self, x, y, w, h):
         self[:] = x, y, w, h
         self.shader.bind()
-        for name, value in dict.items(self.uniforms):
-            self.shader.uniform_float(name, value)
-
+        consume(starmap(self.shader.uniform_float, dict.items(self.uniforms)))
         blend_set(self.blend_mode)
         self.batch.draw()
 
@@ -292,23 +291,23 @@ class Rect(Vector):
         return self.y + self.uniforms.border_width
 
     @property
-    def inner_width(self) -> float:
+    def width_inner(self) -> float:
         return self.width - (self.uniforms.border_width * 2.0)
 
     @property
-    def inner_height(self) -> float:
+    def height_inner(self) -> float:
         return self.height - (self.uniforms.border_width * 2.0)
 
     @property
-    def inner_position(self):
+    def position_inner(self) -> tuple[float, float]:
         """Position of the inner rect, after counting border width"""
         border_width = self.uniforms.border_width
         return self.x + border_width, self.y + border_width
 
     @property
-    def inner_size(self):
+    def size_inner(self):
         """Size of the inner rect"""
-        bw2 = (self.uniforms.border_width * 2.0) - 1
+        bw2 = (self.uniforms.border_width * 2.0)
         return round(self.width - bw2), round(self.height - bw2)
 
 
