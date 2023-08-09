@@ -21,7 +21,7 @@ _editors = {}
 _capsules = []
 # _leave_handlers = {}
 
-runtime = namespace(hit=None, main_draw=None)
+runtime = namespace(hit=None, main_draw=None, cursor_key=(None, None))
 
 # TODO: Rename this to something more descriptive.
 _visible = []
@@ -174,6 +174,10 @@ def set_hit(hit):
     if hit:
         _context.window.cursor_set(hit.cursor)
         hit.on_enter()
+
+        # When a Widget changes the cursor we need to sync the new cursor to
+        # prevent the leave handler from exiting the Widget.
+        runtime.cursor_key = _context.window.internal.cursor, _context.region.as_pointer()
 
 
 def add_hit_test(hook: Callable, space: str = 'TEXT_EDITOR', region: str = 'WINDOW'):

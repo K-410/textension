@@ -1,6 +1,6 @@
 # This module implements widget operators.
 
-from textension.utils import TextOperator, _system, test_and_update, safe_redraw, km_def, defer, factory, is_spacetext
+from textension.utils import TextOperator, _system, safe_redraw, km_def, defer, is_spacetext, inline, set_name
 from textension.core import ensure_cursor_view, find_word_boundary
 from .utils import runtime, _editors, _hit_test, get_mouse_region, set_hit, clear_widget_focus, _visible, HitTestHandler
 from .widgets import *
@@ -249,35 +249,32 @@ class TEXTENSION_OT_ui_resize(TextOperator):
         return {'RUNNING_MODAL'}
 
 
+# Clears a hit Widget when the cursor or region changes.
 class TEXTENSION_OT_ui_leave_handler(TextOperator):
     # Use "Window" (not "Screen Editing") so we can catch the cursor type
     # *after* wm_event_do_handlers has changed it.
     km_def("Window", 'MOUSEMOVE', 'NOTHING')
     bl_options = {'INTERNAL'}
 
-    @factory
-    def poll():
+    @inline
+    def poll(cls, context) -> bool:
         from builtins import AttributeError
-        from .utils import set_hit
-
-        last_key = None, None
+        from .utils import set_hit, runtime
 
         @classmethod
-        def region_check(cls, context):
-            nonlocal last_key
-
+        @set_name("region_leave_handler")
+        def poll(cls, context):
             try:
                 key = context.window.internal.cursor, context.region.as_pointer()
             except (AttributeError, KeyboardInterrupt):
                 key = None, None
-
-            if key != last_key:
-                last_key = key
+            # If the cursor or region changes, leave any hovered Widget.
+            if key != runtime.cursor_key:
+                runtime.cursor_key = key
                 set_hit(None)
-
             return False
 
-        return region_check
+        return poll
 
 
 class TEXTENSION_OT_ui_dismiss(TextOperator):
