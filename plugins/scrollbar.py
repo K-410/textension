@@ -1,7 +1,7 @@
 # This plugin implements new scrollbar for the text editor.
 
 from textension.ui.widgets import Scrollbar, Thumb, TextDraw, Widget
-from textension.utils import _context, _system, make_space_data_instancer, _forwarder, noop
+from textension.utils import _context, _system, make_space_data_instancer, _forwarder, noop, inline
 from textension.btypes.defs import ST_SCROLL_SELECT
 from textension import utils, ui
 import bpy
@@ -23,6 +23,7 @@ class Editor(TextDraw):
     @property
     def top(self):
         return self.st.top + (self.st.runtime._offs_px[1] / self.line_height)
+
     @top.setter
     def top(self, new_top):
         self.st.top = int(new_top)
@@ -36,13 +37,12 @@ class Editor(TextDraw):
     def num_lines(self):
         return self.st.drawcache.total_lines + ((_context.region.height / self.line_height) * 0.5)
 
-    @property
-    def height(self):
-        return _context.region.height
 
     @property
     def width(self):
-        return int(_context.region.width - (int(_system.pixel_size * 8.0 * 0.21) - (_system.wu * 0.05)))
+        scrollbar_width = int(_system.pixel_size * 8.0 * 0.21) - (_system.wu * 0.05)
+        return int(_context.region.width - scrollbar_width)
+
 
     @property
     def lines(self):
@@ -52,15 +52,18 @@ class Editor(TextDraw):
     def max_top(self):
         return max(0, self.st.drawcache.total_lines - ((_context.region.height / self.line_height) * 0.5))
 
-    def get_position(self):
-        return 0, 0
-
-    def draw(self):
-        self.scrollbar.draw()
-
     @property
-    def size(self):
-        return _context.region.width, _context.region.height
+    def position_inner(self) -> tuple[float, float]:
+        return 0.0, 0.0
+
+    @inline
+    def draw(self):
+        return _forwarder("scrollbar.draw")
+
+    size   = _forwarder("context.region.width", "context.region.height", rtype=tuple[int, int])
+    height = _forwarder("context.region.height", rtype=int)
+    width_inner  = width
+    height_inner = height
 
 
 class Overlay(Widget):
