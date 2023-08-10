@@ -1093,7 +1093,7 @@ class ListBox(TextDraw):
 
         y_top = y_start + height_start
 
-        # An overlay's origin y starts from the top.
+        # An overlay's origin y starts from the top, minus one line.
         origin = y_top - line_height + self.line_offset_px
 
         top = int(self.top)
@@ -1102,10 +1102,8 @@ class ListBox(TextDraw):
         for overlay in (self.active, self.hover):
             if top <= overlay.index <= bottom:
                 y = origin - line_height * (overlay.index - top)
-
-                a = min(line_height, y_top - y)
-                b = line_height - y_start + y
-                overlay.draw(x, max(y_start, y), width, min(a, b))
+                height = min(line_height, y_top - y, y - y_start + line_height)
+                overlay.draw(x, max(y_start, y), width, height)
 
     # This exists so subclasses can override for custom entry drawing.
     def draw_entry(self, entry: ListEntry, x: int, y: int):
