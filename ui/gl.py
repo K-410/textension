@@ -101,7 +101,7 @@ void main() {
     // of those are zero, the border is replaced with the background.
     vec4 border_color = mix(final, border_color, border_color.a * min(1.0, bw));
     
-    vec2  size   = rect.zw * 0.5;
+    vec2  size   = (rect.zw - 1.0) * 0.5;
     vec2  center = gl_FragCoord.xy - (rect.xy + size) + vec2(-0.5);
     float dist   = rbox(center, size, corner_radius);
 
