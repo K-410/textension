@@ -822,7 +822,7 @@ class LinearStack:
         self.redo.clear()
         adapter.update()
 
-    def push_intermediate_cursor(self):
+    def update_cursor(self):
         if self.undo:
             self.undo[-1].cursor2 = self.adapter.get_cursor()
 

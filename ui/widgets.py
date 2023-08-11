@@ -49,6 +49,62 @@ __all__ = [
     "Widget",
 ]
 
+def wrap_string(string:    str,
+                max_width: int,
+                font_size: int,
+                font_id:   int) -> list[str]:
+
+    from collections import deque
+    string = string.expandtabs(4)
+    lines = deque(string.split("\n"))
+
+    wrapped = []
+    
+
+    def _break_word(word) -> tuple[str, str]:
+        for i in range(len(word)):
+            substring = word[:i + 1]
+            substring_width = blf.dimensions(font_id, substring + " ")[0]
+            if substring_width > max_width:
+                return word[:i], word[i:]
+        return word[:-1], word[-1]
+
+    blf.size(font_id, font_size, int(_system.dpi * _system.pixel_size))
+    while lines:
+        line = lines.popleft()
+        width = blf.dimensions(font_id, line)[0]
+
+        if width > max_width:
+            span = 0
+            words = deque(line.split(" "))
+
+            tmp = []
+
+            while words:
+                word = words.popleft()
+                word_length = blf.dimensions(font_id, word + " ")[0]
+                curr_width = word_length + span
+
+                if curr_width < max_width:
+                    tmp += word,
+                    span += word_length
+
+                elif tmp:
+                    words.appendleft(word)
+                    wrapped.append(" ".join(tmp))
+                    del tmp[:]
+                    span = 0
+
+                else:
+                    word, tail = _break_word(word)
+                    words.appendleft(tail)
+                    wrapped.append(word)
+            if tmp:
+                line = " ".join(tmp)
+
+        wrapped.append(line)
+    return wrapped
+
 
 class Widget:
     """Base for rectangular shaped widgets.
@@ -67,7 +123,7 @@ class Widget:
     cursor           = 'DEFAULT'
 
     # For convenience. Allows using forwarders.
-    context = _context
+    context          = _context
 
     def __init__(self, parent: Optional["Widget"] = None) -> None:
         _check_type(parent, Widget, type(None))
@@ -79,7 +135,6 @@ class Widget:
 
         self.parent = parent
         self.rect   = Rect()
-        self.rect.widget = self
 
         self.update_uniforms(
             background_color=self.background_color,
@@ -620,6 +675,23 @@ class TextDraw(Widget):
 
         return int(self.rect.height_inner - line_height + self.line_offset_px + y_pad + self.rect.border_width)
 
+    def _clamp_view(self):
+        # Clamp left
+        if self.left > 0.0:
+            shift = max(0, self.left - self.max_left)
+            if shift > 0:
+                self.left = max(0, self.left - shift)
+
+        # Clamp top
+        if self.top > 0.0:
+            shift = max(0.0, self.top - self.max_top)
+            if shift > 0.0:
+                self.top = max(0, self.top - shift)
+
+    def resize(self, size: tuple[int, int]):
+        self.rect.size = size
+        self._clamp_view()
+
 
 class InputAdapter(Adapter):
     def __init__(self, input: "Input"):
@@ -650,7 +722,7 @@ def input_undo(meth):
     @set_name(f"{meth.__name__} (undomethod)")
     def wrapper(self: "Input", *args, undo=True, **kw):
 
-        self.state.push_intermediate_cursor()
+        self.state.update_cursor()
         ret = meth(self, *args, **kw)
 
         if undo:
@@ -1151,13 +1223,23 @@ class TextView(TextDraw):
 
     lines: list[TextLine]
 
+    cached_string: str = ""
     cache_key:   tuple
     font_id = 0
 
-    def set_from_string(self, string: str = ()):
-        if string.__class__ is str:
-            string = map(TextLine, string.splitlines())
-        self.lines[:] = string
+    use_word_wrap: bool = True
+
+    def _update_lines(self) -> list[str]:
+        if self.use_word_wrap:
+            max_width = self.width - self.scrollbar_width
+            lines = wrap_string(self.cached_string, max_width, self.font_size, self.font_id)
+        else:
+            lines = self.cached_string.splitlines()
+        self.lines[:] = map(TextLine, lines)
+
+    def set_from_string(self, string: str):
+        self.cached_string = string
+        self._update_lines()
         self.reset_view()
 
     def __init__(self, parent: Widget):
@@ -1196,3 +1278,8 @@ class TextView(TextDraw):
                 blf.position(self.font_id, text_x, text_y, 0)
                 blf.draw(self.font_id, line.string)
                 text_y -= line_height
+
+    def resize(self, size: tuple[int, int]):
+        self.rect.size = size
+        self._update_lines()
+        self._clamp_view()

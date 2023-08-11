@@ -105,7 +105,7 @@ class OpOverride:
             call_method = _methodcallers[name]
 
             @close_cells(call_method, cls)
-            @set_name(f"{cls.__name__}.{name} (Override)")
+            @set_name(f"{cls.__name__}.{name} (overridden)")
             def wrapper(ctx, op=None, event=None, real=None):
                 instance = cls()
                 instance.args = tuple(filter(None, (ctx, op, event)))

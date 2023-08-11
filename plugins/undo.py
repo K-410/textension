@@ -4,20 +4,23 @@
 # - ED_OT_redo:         Resync when redoing (ctrl shift z)
 # - ED_OT_undo_history: Resync when undoing a specific undo step.
 
-from textension.utils import LinearStack, Adapter, TextOperator, _check_type, close_cells, set_name, text_from_id, iter_spaces, unsuppress, inline_class, noop_noargs
-from textension.core import ensure_cursor_view
-from textension import utils
+from textension.utils import LinearStack, Adapter, TextOperator, text_from_id, iter_spaces, consume
 from textension.overrides import override, restore_capsules, _get_wmOperatorType
 from textension.overrides.default import Default
+from textension.core import ensure_cursor_view
 
-from textension.btypes.defs import OPERATOR_CANCELLED, OPERATOR_FINISHED, OPTYPE_UNDO, TXT_ISDIRTY, TXT_ISMEM
+from textension.btypes.defs import OPERATOR_CANCELLED, OPERATOR_FINISHED, OPTYPE_UNDO
+from textension import utils
+
+from itertools import compress
+from operator import attrgetter, methodcaller, not_
 from typing import Callable
-import bpy
 
+import bpy
 
 _context = utils._context
 
-undo_store: dict[int, "LinearStack"] = {}
+undo_stacks: dict[int, LinearStack] = {}
 
 
 # Dict of python operators using the new undo system
@@ -36,37 +39,16 @@ def _should_split(text: bpy.types.Text):
     if curc != selc or curl != sell or curc < 1:
         return True
     separators = {*" !\"#$%&\'()*+,-/:;<=>?@[\\]^`{|}~."}
-    if text.lines[curl].body[curc - 1] in separators:
-
-        # Consecutively typed separators can be grouped.
-        # operator, op_locals = _get_caller_operator_locals()
-        # if operator is not None:
-        #     if operator.bl_idname == "TEXTENSION_OT_insert":
-        #         if op_locals.get("typed_char") in separators:
-        #             return False
-        return True
-    return False
-
-
-# def _get_caller_operator_locals():
-#     import sys
-#     frame = sys._getframe(2)
-#     while frame is not None:
-#         for value in frame.f_locals.values():
-#             if is_operator(value):
-#                 return value, frame.f_locals
-#         frame = frame.f_back
-#     return None, {}
+    return text.lines[curl].body[curc - 1] in separators
 
 
 class TextAdapter(Adapter):
     metadata: tuple[str, float, int]
 
     def __init__(self, text: bpy.types.Text):
-        _check_type(text, bpy.types.Text)
+        utils._check_type(text, bpy.types.Text)
         self.name = text.name
         self.id   = text.id
-
         self.metadata = ("", 0.0, 0)
 
     @property
@@ -86,8 +68,8 @@ class TextAdapter(Adapter):
             # Find the text by its name.
             elif text := texts.get(self.name):
                 remap_id = text.id
-                assert remap_id not in undo_store
-                undo_store[remap_id] = undo_store.pop(self.id)
+                assert remap_id not in undo_stacks
+                undo_stacks[remap_id] = undo_stacks.pop(self.id)
                 self.id = remap_id
 
             # Blender removed the text. Restore it.
@@ -96,17 +78,20 @@ class TextAdapter(Adapter):
                 text.id_proxy = self.id
         return text
 
+    @utils.inline
     def get_string(self):
-        return self.text.as_string()
+        return utils._forwarder("text.as_string")
 
+    @utils.inline
     def get_cursor(self):
-        return self.text.cursor.copy()
+        return utils._forwarder("text.cursor.copy")
 
     def set_cursor(self, cursor):
         self.text.cursor = cursor
 
-    def set_string(self, data):
-        self.text.from_string(data)
+    @utils.inline
+    def set_string(self, string: str):
+        return utils._forwarder("text.from_string")
 
     def get_should_split(self, hint: bool):
         return _should_split(self.text)
@@ -125,29 +110,38 @@ class TextAdapter(Adapter):
 
 
 # Dummy stack. Makes it easier to write generic code for undo/redo.
-@inline_class(Adapter())
+@utils.inline_class(Adapter())
 class NO_STACK(LinearStack):
     undo = ()
     redo = ()
 
     __bool__ = bool
 
-    push_intermediate_cursor = noop_noargs
+    @utils.inline
+    def update_cursor(self):
+        return utils.noop_noargs
 
-
-from operator import attrgetter, not_
-from itertools import compress
 
 id_from_text  = attrgetter("id")
-id_from_stack = attrgetter("adapter.id")
 sync_ids = set()
 sync_map = {}
 
 
-@unsuppress
+@utils.inline
+def update_cursors(stacks: list[LinearStack]):
+    return methodcaller("update_cursor")
+
+
+# The act of creating or removing texts should not be an undoable operation.
+# That's not how text editors work. So this attempts to fix that.
+@utils.unsuppress
 def sync_pre():
-    stacks = map(ensure_stack, bpy.data.texts)
-    sync_ids.update(map(id_from_stack, stacks))
+    """Called before undo/redo/undo_history.
+    This preserves the texts so they can be recovered.
+    """
+    stacks = list(map(get_undo_stack, bpy.data.texts))
+    consume(map(update_cursors, stacks))
+    sync_ids.update(map(id_from_text, bpy.data.texts))
 
     for st in iter_spaces(space_type='TEXT_EDITOR'):
         if text := st.text:
@@ -156,14 +150,15 @@ def sync_pre():
             sync_map[st] = None
 
 
-@unsuppress
+@utils.unsuppress
 def sync_post():
+    """Called after undo/redo/undo_history."""
     # Remove texts whose ids dont match those from sync_pre.
     saved_ids = map(sync_ids.__contains__, map(id_from_text, bpy.data.texts))
     bpy.data.batch_remove(compress(bpy.data.texts, map(not_, saved_ids)))
 
     # Restore texts Blender removed from its undo/redo step.
-    for stack in tuple(undo_store.values()):
+    for stack in tuple(undo_stacks.values()):
         stack.restore_last()
 
     # Restore the assigned texts to open editors.
@@ -179,12 +174,12 @@ def purge(*unused_args):
     """Purge stacks and create new for any text blocks.
     This is called via bpy.app.handlers.load_post.
     """
-    for stack in undo_store.values():
+    for stack in undo_stacks.values():
         stack.undo.clear()
         stack.redo.clear()
 
-    undo_store.clear()
-    all(map(ensure_stack, bpy.data.texts))
+    undo_stacks.clear()
+    all(map(get_undo_stack, bpy.data.texts))
 
 
 def _has_undo(cls: bpy.types.Operator):
@@ -205,7 +200,7 @@ def pyop_wrapper(context, op=None, event=None, method: Callable = None):
 
 
 def pyop_enable_new_undo(cls) -> bool:
-    _check_type(cls, bpy.types.Operator)
+    utils._check_type(cls, bpy.types.Operator)
     assert cls.is_registered, f"Operator '{cls}' is not registered"
 
     if not _has_undo(cls):
@@ -230,21 +225,17 @@ def pyop_disable_new_undo(cls):
     del _pyop_store[cls]
 
 
-def ensure_stack(text: bpy.types.Text):
-    _check_type(text, bpy.types.Text)
-
-    id = text.id
-
+def get_undo_stack(text: bpy.types.Text):
+    assert text.__class__ is bpy.types.Text
     try:
-        stack = undo_store[id]
+        return undo_stacks[text.id]
     except KeyError:
-        stack = undo_store[id] = LinearStack(TextAdapter(text))
-    return stack
+        return undo_stacks.setdefault(text.id, LinearStack(TextAdapter(text)))
 
 
 def get_active_stack():
     if text := getattr(_context, "edit_text", None):
-        return ensure_stack(text)
+        return get_undo_stack(text)
     return NO_STACK
 
 
@@ -273,18 +264,18 @@ def redo_pre():
 
 
 def unlink_pre():
-    undo_store.pop(_context.edit_text.id, None)
+    undo_stacks.pop(_context.edit_text.id, None)
 
 
 def new_post(result):
     if result == OPERATOR_FINISHED:
-        ensure_stack(_context.text)
+        get_undo_stack(_context.text)
 
 
 def save_post(result=None):
     if result in {None, OPERATOR_FINISHED}:
         # Update filepath, modified time and flags from text.
-        stack = ensure_stack(_context.edit_text)
+        stack = get_undo_stack(_context.edit_text)
         stack.adapter.update()
 
 
@@ -302,13 +293,13 @@ def _apply_default_undo():
             if name == "poll":
                 continue
 
-            @close_cells(cls, method)
-            @set_name(f"{name} (Undo wrapped)")
+            @utils.close_cells(cls, method)
+            @utils.set_name(f"{name} (Undo wrapped)")
             def wrapper(self: cls):
                 stack = get_active_stack()
 
-                # If the cursor was moved, store the current position.
-                stack.push_intermediate_cursor()
+                # If the cursor was moved, push the current position.
+                stack.update_cursor()
 
                 try:
                     result = method(self)

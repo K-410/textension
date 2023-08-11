@@ -240,21 +240,7 @@ class TEXTENSION_OT_ui_resize(TextOperator):
                 max_height = min(rh - (rh - (y + h)), self.start_height - y_delta)
                 h = max(self.min_height, max_height)
 
-            rect.size = (w, h)
-
-            # Clamping. Only relevant for Widgets with surfaces.
-            if isinstance(subject, TextDraw):
-                # Clamp left
-                if subject.left > 0.0:
-                    shift = max(0, subject.left - subject.max_left)
-                    if shift > 0:
-                        subject.left = max(0, subject.left - shift)
-
-                # Clamp top
-                if subject.top > 0.0:
-                    shift = max(0.0, subject.top - subject.max_top)
-                    if shift > 0.0:
-                        subject.top = max(0, subject.top - shift)
+            subject.resize((w, h))
 
             safe_redraw()
         return {'RUNNING_MODAL'}

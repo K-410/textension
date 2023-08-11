@@ -179,7 +179,7 @@ class Rect(Vector):
     ``border_width``
     ``corner_radius``
     """
-    __slots__  = ("uniforms", "dimensions", "blend_mode", "widget")
+    __slots__  = ("uniforms", "dimensions", "blend_mode")
 
     # Convenience descriptors
     x        = Vector.x
