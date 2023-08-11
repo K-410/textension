@@ -709,7 +709,7 @@ class Adapter:
 
     # Update hook on stack initialization and undo push.
     @inline
-    def update(self, restore=False):
+    def on_update(self, restore=False):
         return noop
 
     # If LinearStack.poll_undo/redo fails, we still want a way to eat the
@@ -787,21 +787,18 @@ class LinearStack:
     def move_and_set(self, from_stack, to_stack):
         to_stack += from_stack.pop(),
         state  = self.undo[-1]
-        cursor = state.cursor1
-        self.adapter.set_string(state.data)
-
-        if from_stack is self.undo:
-            cursor = state.cursor2 or state.cursor1
-
-        self.adapter.set_cursor(cursor)
-        self.adapter.update(restore=True)
+        cursor = from_stack is self.undo and state.cursor2 or state.cursor1
+        self.set_state(state.data, cursor)
 
     def restore_last(self):
         if self.adapter.is_valid:
             state = self.undo[-1]
-            self.adapter.set_string(state.data)
-            self.adapter.set_cursor(state.cursor2 or state.cursor1)
-            self.adapter.update(restore=True)
+            self.set_state(state.data, state.cursor2 or state.cursor1)
+
+    def set_state(self, data, cursor):
+        self.adapter.set_string(data)
+        self.adapter.set_cursor(cursor)
+        self.adapter.on_update(restore=True)
 
     def push_undo(self, tag, *, can_group=True):
         """If ``can_group`` is True, allow merging similar states."""
@@ -820,7 +817,7 @@ class LinearStack:
 
         self.last_push = now
         self.redo.clear()
-        adapter.update()
+        adapter.on_update()
 
     def update_cursor(self):
         if self.undo:

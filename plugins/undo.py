@@ -96,7 +96,7 @@ class TextAdapter(Adapter):
     def get_should_split(self, hint: bool):
         return _should_split(self.text)
 
-    def update(self, restore=False):
+    def on_update(self, restore=False):
         text = self.text
         internal = text.internal
         if restore:
