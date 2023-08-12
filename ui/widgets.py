@@ -2,14 +2,15 @@
 
 from textension.utils import _check_type, _forwarder, _system, _context, \
     test_and_update, safe_redraw, close_cells, inline, set_name, \
-    LinearStack, Adapter
+    LinearStack, Adapter, soft_property, _named_index
 from textension.ui.utils import set_focus, get_focus
 from textension.ui.gl import Rect, Texture
 from textension.core import find_word_boundary
 
 from functools import partial
 from itertools import islice
-from operator import methodcaller
+from operator import methodcaller, itemgetter
+from collections import defaultdict
 from typing import Optional, Union
 
 from textension.overrides.default import (
@@ -32,7 +33,7 @@ import blf
 
 # All possible cursors to pass Window.set_cursor()
 cursor_types = set(bpy.types.Operator.bl_rna.properties["bl_cursor_pending"].enum_items.keys())
-
+_get_margins = itemgetter("left", "top", "right", "bottom")
 
 __all__ = [
     "BoxResizer",
@@ -1216,6 +1217,25 @@ class ListBox(TextDraw):
         return result
 
 
+class _Margins(tuple):
+    left   = _named_index(0)
+    top    = _named_index(1)
+    right  = _named_index(2)
+    bottom = _named_index(3)
+
+    @soft_property
+    def vertical(self, obj, objclass=None):
+        value = obj.top + obj.bottom
+        obj.vertical = value
+        return value
+
+    @soft_property
+    def horizontal(self, obj, objclass=None):
+        value = self[0] + self[2]
+        obj.horizontal = value
+        return value
+
+
 class TextView(TextDraw):
     parent: Widget
 
@@ -1226,6 +1246,8 @@ class TextView(TextDraw):
     border_color     = 0.3, 0.3, 0.3, 1.0
 
     lines: list[TextLine]
+
+    margins: _Margins = _Margins((0, 0, 0, 0))  # Left, right, top, bottom.
 
     cached_string: str = ""
     cache_key:   tuple
@@ -1241,6 +1263,19 @@ class TextView(TextDraw):
             lines = self.cached_string.splitlines()
         self.lines[:] = map(TextLine, lines)
 
+    def set_margins(self, **kw) -> None:
+        """Set the margins of the TextView object.
+
+        Possible keywords: left, top, right and bottom.
+
+        Example: set_margins(left=10)
+        """
+        new_margins = dict(zip(("left", "top", "right", "bottom"), self.margins)) | kw
+        try:
+            self.margins = _Margins(map(int, _get_margins(new_margins)))
+        except:
+            raise TypeError("Keyword arguments not convertible to int")
+
     def set_from_string(self, string: str):
         self.cached_string = string
         self._update_lines()
@@ -1249,6 +1284,7 @@ class TextView(TextDraw):
     def __init__(self, parent: Widget):
         super().__init__(parent=parent)
         self.rect.size = (250, 100)
+        self.set_margins(left=8, top=8, right=8, bottom=8)
 
     @property
     def width(self):
@@ -1268,22 +1304,45 @@ class TextView(TextDraw):
         self.draw_text()           # Draw the text.
         super().draw()             # Draw the surface.
 
+    def get_text_y(self):
+        y = super().get_text_y() - self.margins[1]
 
-        rect.draw(x, y, w, h)  # Draw the background.
-        self.draw_text()       # Draw the text.
-        super().draw()         # Draw the surface.
+        # ``get_drawable_lines`` accounts for margins which means the top can
+        # be negative. If so, text_y must be offset so the drawable lines fit
+        # within the margin. Otherwise the lines get clipped in view.
+        a = int(max(0, self.top - self.margin_line_offset))
+        return y + int(int(self.top) - a) * self.line_height
 
+    def get_text_x(self):
+        return -self.left + self.margins[0]
 
-        rect.draw(x, y, w, h)   # Draw the background.
-        self.draw_text()        # Draw the text.
-        super().draw()          # Draw the surface.
+    @property
+    def margin_line_offset(self):
+        return self.margins.vertical / self.line_height
+
+    @property
+    def num_lines(self):
+        return super().num_lines + self.margin_line_offset
+
+    @property
+    def max_top(self) -> float:
+        # If we have a vertical margin, we need to add it to max top.
+        if offset := self.margin_line_offset:
+            return max(0.0, self.count_lines() - self.visible_lines + offset)
+        return super().max_top
+
+    def get_drawable_lines(self):
+        # print(self.top - self.margin_line_offset)
+        start = int(max(0, self.top - self.margin_line_offset))
+        end = int(start + (self.rect[3] // self.line_height) + 2)
+        return islice(self.lines, start, end)
 
     def draw_text(self):
         surface = self.get_surface()
 
         line_height = self.line_height
         text_y = self.get_text_y()
-        text_x = -self.left
+        text_x = self.get_text_x()
         with surface.bind():
             blf.color(self.font_id, 1, 1, 1, 1)
             for line in self.get_drawable_lines():
