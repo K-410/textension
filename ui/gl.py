@@ -3,8 +3,9 @@
 from gpu.state import viewport_get, viewport_set, blend_set
 from gpu.types import GPUFrameBuffer, GPUTexture
 from mathutils import Vector
-from textension.utils import cm, consume
+from textension.utils import cm, consume, inline
 from itertools import starmap
+from operator import attrgetter
 import gpu
 
 
@@ -174,38 +175,34 @@ class Uniforms(dict):
 class Rect(Vector):
     """
     Uniforms:
-    ``background_color``
-    ``border_color``
-    ``border_width``
-    ``corner_radius``
+
+    ``background_color`` : rectangle background color
+    ``border_color``     : rectangle border color
+    ``border_width``     : rectangle border width
+    ``corner_radius``    : rounding corner radius
+    ``rect``             : rectangle position and dimensions
+    ``shadow``           : drop shadow color
     """
-    __slots__  = ("uniforms", "dimensions", "blend_mode")
+    __slots__  = ("uniforms", "blend_mode")
+
+    __hash__   = object.__hash__  # Hash by object identity
 
     # Convenience descriptors
-    x        = Vector.x
-    y        = Vector.y
-    width    = Vector.z
-    height   = Vector.w
+    x:                     float  = Vector.x
+    y:                     float  = Vector.y
+    width:                 float  = Vector.z
+    height:                float  = Vector.w
+    position: tuple[float, float] = Vector.xy
+    size:     tuple[float, float] = Vector.zw
 
-    position = Vector.xy
-    size     = Vector.zw
-
-    __hash__ = object.__hash__  # Hash by object identity
-
-    # The batch dimensions
-    dimensions: tuple[float, float]
-
-    # The GPU blend mode used when this Rect is drawn.
+    batch:      gpu.types.GPUBatch
     blend_mode: str
-
-    shader: gpu.types.GPUShader
-    batch:  gpu.types.GPUBatch
+    shader:     gpu.types.GPUShader
 
     def __init__(self):
         super().__init__()
         self.resize_4d()
 
-        self.dimensions = (100.0, 100.0)
         self.blend_mode = "ALPHA"
 
         self.uniforms = Uniforms(
@@ -245,30 +242,37 @@ class Rect(Vector):
         return False
 
     @property
+    @inline
     def background_color(self):
-        return self.uniforms.background_color
+        return attrgetter("uniforms.background_color")
+
     @background_color.setter
     def background_color(self, rgba):
         self.uniforms.background_color[:] = rgba
 
     @property
+    @inline
     def border_color(self):
-        return self.uniforms.border_color
+        return attrgetter("uniforms.border_color")
+
     @border_color.setter
     def border_color(self, rgba):
         self.uniforms.border_color[:] = rgba
 
     @property
+    @inline
     def border_width(self):
-        return self.uniforms.border_width
+        return attrgetter("uniforms.border_width")
+
     @border_width.setter
     def border_width(self, value: float):
         self.uniforms.border_width = float(value)
-        assert self.uniforms.border_width == float(value)
 
     @property
+    @inline
     def corner_radius(self):
-        return self.uniforms.corner_radius
+        return attrgetter("uniforms.corner_radius")
+
     @corner_radius.setter
     def corner_radius(self, value: float):
         self.uniforms.corner_radius = max(0.0, float(value))
@@ -277,6 +281,7 @@ class Rect(Vector):
     def x2(self):
         """x + width"""
         return self[0] + self[2]
+
     @property
     def y2(self):
         """y + height"""
@@ -284,30 +289,34 @@ class Rect(Vector):
 
     @property
     def inner_x(self) -> float:
-        return self.x + self.uniforms.border_width
+        return self.x + self.border_width
 
     @property
     def inner_y(self) -> float:
-        return self.y + self.uniforms.border_width
+        return self.y + self.border_width
 
     @property
     def width_inner(self) -> float:
-        return self.width - (self.uniforms.border_width * 2.0)
+        return self.width - (self.border_width * 2.0)
 
     @property
     def height_inner(self) -> float:
-        return self.height - (self.uniforms.border_width * 2.0)
+        return self.height - (self.border_width * 2.0)
+
+    @height_inner.setter
+    def height_inner(self, value):
+        self.height = value + (self.border_width * 2.0)
 
     @property
     def position_inner(self) -> tuple[float, float]:
         """Position of the inner rect, after counting border width"""
-        border_width = self.uniforms.border_width
+        border_width = self.border_width
         return self.x + border_width, self.y + border_width
 
     @property
     def size_inner(self):
         """Size of the inner rect"""
-        bw2 = (self.uniforms.border_width * 2.0)
+        bw2 = (self.border_width * 2.0)
         return round(self.width - bw2), round(self.height - bw2)
 
 
