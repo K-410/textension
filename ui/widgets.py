@@ -1248,8 +1248,7 @@ class TextView(TextDraw):
 
     def __init__(self, parent: Widget):
         super().__init__(parent=parent)
-        self.rect.height = 100
-        self.rect.width = 250
+        self.rect.size = (250, 100)
 
     @property
     def width(self):
@@ -1263,8 +1262,17 @@ class TextView(TextDraw):
         p_rect = self.parent.rect
         w, h = rect.size
 
-        x = p_rect.x + p_rect.width
-        y = p_rect.y + p_rect.height - h
+        x, y = p_rect.position + p_rect.size
+
+        rect.draw(x, y - h, w, h)  # Draw the background.
+        self.draw_text()           # Draw the text.
+        super().draw()             # Draw the surface.
+
+
+        rect.draw(x, y, w, h)  # Draw the background.
+        self.draw_text()       # Draw the text.
+        super().draw()         # Draw the surface.
+
 
         rect.draw(x, y, w, h)   # Draw the background.
         self.draw_text()        # Draw the text.
