@@ -1105,6 +1105,10 @@ class ListBox(TextDraw):
             corner_radius=self.corner_radius)
 
     @property
+    def content_height(self):
+        return (len(self.lines) * self.line_height)
+
+    @property
     def x(self) -> int:
         return round(self.rect.inner_x)
 
