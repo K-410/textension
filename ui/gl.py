@@ -6,7 +6,14 @@ from mathutils import Vector
 from textension.utils import cm, consume, inline
 from itertools import starmap
 from operator import attrgetter
+from functools import partial
+
 import gpu
+
+
+@inline
+def set_blend_alpha_premult():
+    return partial(gpu.state.blend_set, 'ALPHA_PREMULT')
 
 
 def init():
@@ -29,8 +36,7 @@ def cleanup():
     Texture.batch  = None
 
     for instance in Texture._instances:
-        del instance.texture
-        del instance.fbo
+        instance.__dict__.clear()
 
     Texture._instances.clear()
 
@@ -324,7 +330,7 @@ class Texture:
     x: float = 0
     y: float = 0
 
-    size: tuple[int, int]
+    size: tuple[int, int] = (-1, -1)
 
     _instances = []  # Track instances so we can clean up FBOs and textures.
 
@@ -336,27 +342,22 @@ class Texture:
         return cls._instances[-1]
 
     def __init__(self, size: tuple[int, int] = (100, 100)):
-        try:
-            assert len(size) == 2 and all(isinstance(v, int) for v in size)
-        except:
-            raise TypeError(f"Expected sequece of 2 ints, got {size}")
-        self.size = size
-
-        self.texture = GPUTexture(size)
+        self.size = (_, _) = tuple(map(int, size))
+        self.texture = GPUTexture(self.size)
         self.fbo = GPUFrameBuffer(color_slots=self.texture)
+        self.clear_texture  = partial(self.fbo.clear, color=(0.0,) * 4)
+        self.upload_texture = partial(self.shader.uniform_sampler, "image", self.texture)
 
     def draw(self):
         self.shader.bind()
-        self.shader.uniform_sampler("image", self.texture)
+        self.upload_texture()
 
         # For restoring viewport rect.
         viewport = viewport_get()
-
-        blend_set('ALPHA_PREMULT')
+        set_blend_alpha_premult()
         viewport_set(self.x, self.y, *self.size)
 
         self.batch.draw()
-
         viewport_set(*viewport)
 
     @cm
@@ -364,8 +365,10 @@ class Texture:
         viewport = viewport_get()
 
         with self.fbo.bind():
-            self.fbo.clear(color=(0.0, 0.0, 0.0, 0.0))
+            self.clear_texture()
             viewport_set(*viewport)
             yield
 
-    resize = __init__
+    def resize(self, size: tuple[int, int] = (100, 100)):
+        if size != self.size:
+            self.__init__(size)
