@@ -301,7 +301,11 @@ def _check_type(obj, *types):
     if not isinstance(obj, types):
         # Check the class also.
         if not (isinstance(obj, type) and issubclass(obj, types)):
-            raise TypeError(f"Expected {types}, got {type(obj)}")
+            if len(types) == 1:
+                s = str(types[0])
+            else:
+                s = f"any of [{' ,'.join(map(str, types))}]"
+            raise TypeError(f"Expected {s}, got {type(obj)}")
 
 
 def close_cells(*args):
