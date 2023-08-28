@@ -554,7 +554,8 @@ def enable():
     global prefs
     prefs = add_settings(TEXTENSION_PG_highlights)
 
-    utils.add_draw_hook(draw_match)
+    # The new editor scrollbar uses draw index 10. This draws on top.
+    utils.add_draw_hook(draw_match, draw_index=11)
 
 
 def disable():
