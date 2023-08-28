@@ -379,42 +379,55 @@ space_map = {
     "VIEW_3D":          bpy.types.SpaceView3D,
 }
 
+_draw_hook_index_map = {}
+
 
 def add_draw_hook(
-        hook:   Callable,
-        args:   tuple = (),
-        space:  str = 'TEXT_EDITOR',
-        region: str = 'WINDOW',
-        type:   str = 'POST_PIXEL'):
+        hook:        FunctionType,
+        args:        tuple = (),
+        space_type:  str = 'TEXT_EDITOR',
+        region_type: str = 'WINDOW',
+        draw_type:   str = 'POST_PIXEL',
+        draw_index:  int = -1):
 
     if not isinstance(args, tuple):
         args = (args,)
 
-    assert all(map(str.__instancecheck__, (space, region, type)))
-    space_type = space_map.get(space)
+    space = space_map.get(space_type)
 
     _check_type(hook, FunctionType)
-    _check_type(space_type, bpy.types.Space)
+    _check_type(space, bpy.types.Space)
+    _check_type(draw_index, int)
 
     if args and hook.__defaults__ is None:
         hook.__defaults__ = args
 
-    regions = _editors.setdefault(space_type, {})
+    _draw_hook_index_map[id(hook)] = draw_index
 
-    if region not in regions:
-        # Region is new - register a region draw callback.
-        hooks = [hook]
+    regions = _editors.setdefault(space, {})
+
+    if region_type not in regions:
+        # Add a new draw callback for this region.
+        hooks = []
 
         @close_cells(hooks)
         def region_draw_handler():
             for draw_callback in hooks:
                 draw_callback()
 
-        handle = space_type.draw_handler_add(region_draw_handler, (), region, type)
-        regions[region] = (handle, hooks)
+        handle = space.draw_handler_add(region_draw_handler, (), region_type, draw_type)
+        regions[region_type] = (handle, hooks)
 
-    else:
-        regions[region][1].append(hook)
+    hooks = regions[region_type][1]
+
+    if draw_index != -1:
+        for i, hk in enumerate(hooks):
+            hook_index = _draw_hook_index_map.get(id(hk), -1)
+            if hook_index > -1 and hook_index > draw_index:
+                hooks.insert(i, hook)
+                return None
+
+    hooks += hook,
 
 
 def remove_draw_hook(fn: Callable, region: str='WINDOW'):
@@ -435,6 +448,7 @@ def remove_draw_hook(fn: Callable, region: str='WINDOW'):
             break
     if not found:
         raise RuntimeError(f"'{fn.__name__}' not a registered hook")
+    _draw_hook_index_map.pop(id(fn), None)
     return found
 
 
