@@ -16,26 +16,26 @@ class Editor(TextDraw):
     scrollbar_width = 20
 
     def __init__(self, st):
-        self.st = st
+        self.space_data = st
         self.children = []  # Unused, but needed for scrollbar widget.
         self.scrollbar = EditorScrollbar(self)
 
     @property
     def top(self):
-        return self.st.top + (self.st.runtime._offs_px[1] / self.line_height)
+        return self.space_data.top + (self.space_data.runtime._offs_px[1] / self.line_height)
 
     @top.setter
     def top(self, new_top):
-        self.st.top = int(new_top)
-        self.st.runtime._offs_px[1] = int((new_top % 1.0) * self.line_height) 
+        self.space_data.top = int(new_top)
+        self.space_data.runtime._offs_px[1] = int((new_top % 1.0) * self.line_height) 
 
     @property
     def line_height(self):
-        return max(1, int(self.st.runtime._lheight_px * 1.3))
+        return max(1, int(self.space_data.runtime._lheight_px * 1.3))
 
     @property
     def num_lines(self):
-        return self.st.drawcache.total_lines + ((_context.region.height / self.line_height) * 0.5)
+        return self.space_data.drawcache.total_lines + ((_context.region.height / self.line_height) * 0.5)
 
 
     @property
@@ -50,7 +50,7 @@ class Editor(TextDraw):
 
     @property
     def max_top(self):
-        return max(0, self.st.drawcache.total_lines - ((_context.region.height / self.line_height) * 0.5))
+        return max(0, self.space_data.drawcache.total_lines - ((_context.region.height / self.line_height) * 0.5))
 
     @property
     def position_inner(self) -> tuple[float, float]:
@@ -103,11 +103,11 @@ class EditorScrollbar(Scrollbar):
 
     @property
     def background_color(self):
-        return tuple((v + 0.02) for v in themes["Default"].text_editor.space.back) + (1.0,)
+        return tuple(map(0.02 .__add__, themes["Default"].text_editor.space.back)) + (1.0,)
 
     def on_leave(self):
         self.thumb.set_highlight(False)
-        utils.safe_redraw_from_space_data(self.parent.st)
+        utils.safe_redraw_from_space_data(self.parent.space_data)
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -120,9 +120,8 @@ class EditorScrollbar(Scrollbar):
         return super().set_view(ratio)
 
     def draw(self):
-        st = self.parent.st
-        
-        # The gutter background is updated on every redraw. Not particularly
+        st = self.parent.space_data
+        # The gutter color is read on every redraw. Not particularly
         # ideal - we could use RNA subscription here.
         self.update_uniforms(background_color=self.background_color)
 
@@ -143,7 +142,10 @@ class EditorScrollbar(Scrollbar):
     def on_activate(self):
         bpy.ops.textension.ui_scroll_jump('INVOKE_DEFAULT')
 
-get_editor = make_space_data_instancer(Editor)
+
+@inline
+def get_editor() -> Editor:
+    return make_space_data_instancer(Editor)
 
 
 def draw_scrollbar():
@@ -157,8 +159,9 @@ def test_scrollbar(x, y):
 
 
 def enable():
-    utils.add_draw_hook(draw_scrollbar)
+    utils.add_draw_hook(draw_scrollbar, draw_index=10)
     ui.add_hit_test(test_scrollbar)
+
 
 def disable():
     utils.remove_draw_hook(draw_scrollbar)
