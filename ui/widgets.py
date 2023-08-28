@@ -505,7 +505,7 @@ class TextDraw(Widget):
 
     def __init__(self, parent: Optional[Widget] = None) -> None:
         super().__init__(parent=parent)
-        self.update_uniforms(rect=(0, 0, 300, 200))
+        self.update_uniforms(rect=(0, 0, 260, 158))
 
         self.lines   = []
         self.resizer = BoxResizer(self)
@@ -1065,8 +1065,8 @@ class ListBox(TextDraw):
 
     text_padding            = 5
 
-    width  = 300
-    height = 200
+    width  = 200
+    height = 120
 
     font_id = 1
 
