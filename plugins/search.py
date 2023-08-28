@@ -18,8 +18,7 @@ class Search(Widget):
 
     def __init__(self, st):
         super().__init__(parent=None)
-
-        self.st = st
+        self.space_data = st
         self.is_visible = False
         self.input = Input(parent=self)
         self.update_uniforms(corner_radius=2.0)
@@ -93,7 +92,7 @@ classes = (
 
 def enable():
     utils.register_classes(classes)
-    utils.add_draw_hook(draw_search)
+    utils.add_draw_hook(draw_search, draw_index=10)
 
     from textension.ui.utils import add_hit_test
     add_hit_test(test_search)
