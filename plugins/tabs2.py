@@ -262,7 +262,7 @@ def enable():
     utils.watch_rna((bpy.types.PreferencesView, "ui_scale"), Tabs.invalidate)
 
     bpy.types.Text.tab_index = bpy.props.IntProperty(default=-1)
-    utils.add_draw_hook(draw_tabs, region='HEADER')
+    utils.add_draw_hook(draw_tabs, region_type='HEADER')
     set_new_header_layout(True)
 
 
