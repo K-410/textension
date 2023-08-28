@@ -8,6 +8,15 @@ bl_info = {
     "category": "*Text Editor"
 }
 
+if "bpy" in locals():
+    import sys
+    if __name__ in sys.modules:
+        del sys.modules[__name__]
+
+    for name in tuple(sys.modules):
+        if name.startswith("textension."):
+            del sys.modules[name]
+
 
 from . import api, core, overrides, prefs, ui, utils, operators
 import bpy
