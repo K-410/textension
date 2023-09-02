@@ -357,6 +357,24 @@ class TEXTENSION_OT_ui_input_set_cursor(TextOperator):
         return self.modal(context, event)
 
 
+class TEXTENSION_OT_ui_show(TextOperator):
+    bl_options = {'INTERNAL'}
+
+    tooltip_string: bpy.props.StringProperty(default="", options={'SKIP_SAVE'})
+    path: bpy.props.StringProperty(options={'SKIP_SAVE'})
+
+    @classmethod
+    def description(cls, context, operator):
+        return operator.tooltip_string or "No description"
+
+    def execute(self, context):
+        if path := self.path:
+            from textension.prefs import resolve_prefs_path
+            obj, value = resolve_prefs_path(path, coerce=False)
+            setattr(obj, path.rpartition(".")[-1], not value)
+        return {'CANCELLED'}
+
+
 classes = (
     TEXTENSION_OT_ui_dismiss,
     TEXTENSION_OT_ui_input_set_cursor,
@@ -366,4 +384,5 @@ classes = (
     TEXTENSION_OT_ui_scroll_jump,
     TEXTENSION_OT_ui_scroll_lines,
     TEXTENSION_OT_ui_scrollbar,
+    TEXTENSION_OT_ui_show,
 )
