@@ -499,7 +499,7 @@ def clamp_factory(lower, upper):
     return inner
 
 
-def get_scrollbar_x_points(region_width):
+def get_scrollbar_x_offsets(region_width):
     """Given a region width in pixels, return the x1 and x2 points
     of the scrollbar.
     """
