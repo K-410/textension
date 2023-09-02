@@ -2,6 +2,7 @@ import bpy
 from . import utils
 from _bpy import context as _context
 
+
 system = _context.preferences.system
 
 
@@ -11,7 +12,11 @@ def init():
 
 
 def cleanup():
-    _cleanup_plugins()
+    prefs = get_prefs()
+    for plugin in prefs.plugins:
+        if plugin.enabled:
+            plugin.module.disable()
+
     utils.unregister_classes(classes)
 
 
@@ -35,16 +40,25 @@ def _init_plugins():
         if plugin.enabled:
             plugin.module.enable()
 
-
-def _cleanup_plugins():
-    prefs = get_prefs()
-    for plugin in prefs.plugins:
-        if plugin.enabled:
-            plugin.module.disable()
+    # Sort plugins alphabetically.
+    for index, name in enumerate(sorted(p.name for p in plugins)):
+        plugins.move(plugins.find(name), index)
 
 
 def get_prefs():
     return _context.preferences.addons["textension"].preferences
+
+
+def resolve_prefs_path(path, coerce=True):
+    from operator import attrgetter
+
+    obj_path, name = path.rpartition(".")[::2]
+
+    obj  = attrgetter(obj_path)(get_prefs())
+    attr = getattr(obj, name)
+    if coerce:
+        return attr
+    return (obj, attr)
 
 
 def get_plugins() -> dict:
@@ -86,12 +100,21 @@ def remove_settings(cls):
                 return
 
 
+def enum_plugin_settings(self, context, *, data=[]):
+    if not data:
+        data += ("general", "", ""),
+        for plugin in get_prefs().plugins:
+            data += (plugin.name, "", ""),
+    return data
+
+
 class Runtime(bpy.types.PropertyGroup):
     show_all_kmi: bpy.props.BoolProperty(default=False)
     tab: bpy.props.EnumProperty(
         items=(('CORE',    "Core",    "Core settings"),
                ('PLUGINS', "Plugins", "Plugins settings"),
                ('KEYMAPS', "Keymaps", "Keymaps settings")))
+    active_plugin_settings: bpy.props.EnumProperty(items=enum_plugin_settings)
 
     @classmethod
     def register(cls):
@@ -103,12 +126,14 @@ class Runtime(bpy.types.PropertyGroup):
 
 
 class Plugin(bpy.types.PropertyGroup):
-    """Represents a Textension plugin which can be enabled/disabled."""
-
     @property
     def module(self):
         import importlib
         return importlib.import_module(self.full_name)
+
+    @property
+    def title(self):
+        return self.name.replace("_", " ").title()
 
     def on_enabled(self, context):
         if self.enabled:
@@ -116,6 +141,9 @@ class Plugin(bpy.types.PropertyGroup):
         else:
             self.module.disable()
         context.preferences.is_dirty = True
+
+    def on_show_settings(self, context):
+        Runtime.active_plugin = self.name
 
     # The full name as used by importlib's import_module
     full_name: bpy.props.StringProperty()
@@ -129,181 +157,153 @@ class Plugin(bpy.types.PropertyGroup):
     # Whether to show plugin settings in the ui
     show_settings: bpy.props.BoolProperty(
         default=False,
-        description="Show this plugin's settings")
+        description="Show this plugin's settings",
+        update=on_show_settings)
+
+
+class TogglePlugin(bpy.types.Operator):
+    bl_idname = "textension.toggle_plugin"
+    bl_label = ""
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def description(cls, context, operator):
+        if plugin := getattr(context, "plugin", None):
+            prefix = "Disable " if plugin.enabled else "Enable "
+            return prefix + plugin.title
+        return ""
+
+    def execute(self, context):
+        if plugin := getattr(context, "plugin", None):
+            plugin.enabled = not plugin.enabled
+
+            if not plugin.enabled:
+                runtime = context.window_manager.textension
+                if runtime.active_plugin_settings == plugin.name:
+                    assert plugin.name != "general"
+                    runtime.active_plugin_settings = "general"
+        return {'CANCELLED'}
+
+
+class ShowSettings(bpy.types.Operator):
+    bl_idname  = "textension.show_settings"
+    bl_options = {'INTERNAL'}
+    bl_label   = ""
+
+    @classmethod
+    def description(cls, context, operator):
+        if plugin := getattr(context, "plugin", None):
+            return f'Show {plugin.title} Settings'
+        return "Show General Settings"
+
+    def execute(self, context):
+        name = "general"
+        if plugin := getattr(context, "plugin", None):
+            name = plugin.name
+        context.window_manager.textension.active_plugin_settings = name
+        return {'CANCELLED'}
+
 
 
 class Preferences(bpy.types.AddonPreferences, bpy.types.PropertyGroup):
     bl_idname = __package__
 
     plugins: bpy.props.CollectionProperty(type=Plugin)
-    # from .keymap import kmi_cb
-
-    # wheel_scroll_lines: bpy.types.IntProperty(
-    #     name="Scroll Lines",
-    #     description="Lines to scroll per wheel tick",
-    #     default=3,
-    #     min=1,
-    #     max=10,
-    # )
-    # nudge_scroll_lines: bpy.types.IntProperty(
-    #     name="Nudge Lines",
-    #     description="Lines to nudge with Ctrl-Up/Down",
-    #     default=3,
-    #     min=1,
-    #     max=10,
-    # )
-    # use_smooth_scroll: bpy.types.BoolProperty(
-    #     name="Smooth Scrolling",
-    #     description="Smooth scroll with mouse wheel",
-    #     default=True,
-    #     update=kmi_cb("scroll2", "use_smooth_scroll"),
-    # )
-    # scroll_speed: bpy.types.FloatProperty(
-    #     name="Scroll Speed",
-    #     description="Scroll speed multiplier",
-    #     default=5,
-    #     min=1,
-    #     max=20,
-    # )
-    # use_continuous_scroll: bpy.types.BoolProperty(
-    #     name="Continuous Scrolling",
-    #     description="Enable continuous scrolling with middle mouse",
-    #     default=True,
-    #     update=kmi_cb("scroll_continuous", "use_continuous_scroll"),
-    # )
-    # closing_bracket: bpy.types.BoolProperty(
-    #     name="Close Brackets",
-    #     description="Automatically close brackets",
-    #     default=True,
-    # )
-    # use_new_linebreak: bpy.types.BoolProperty(
-    #     name="New Line Break",
-    #     description="Use line break which adds indentation",
-    #     default=True,
-    #     update=kmi_cb("line_break", "use_new_linebreak"),
-    # )
-    # use_home_toggle: bpy.types.BoolProperty(
-    #     name="Home Toggle",
-    #     description="Home key toggles between line start and indent level",
-    #     default=True,
-    #     update=kmi_cb("move_toggle", "use_home_toggle"),
-    # )
-    # use_search_word: bpy.types.BoolProperty(
-    #     default=True,
-    #     name="Search by Selection",
-    #     description="Selected word is automatically copied to search field",
-    #     update=kmi_cb("search_with_selection", "use_search_word"),
-    # )
-    # use_cursor_history: bpy.types.BoolProperty(
-    #     name="Use Cursor History",
-    #     description="Enable to use cursor history with mouse 4/5",
-    #     default=True,
-    #     update=kmi_cb("cursor_history", "use_cursor_history"),
-    # )
-    # use_header_toggle: bpy.types.BoolProperty(
-    #     name="Toggle Header",
-    #     description="Toggle header with hotkey (Alt)",
-    #     default=True,
-    #     update=kmi_cb("toggle_header", "use_header_toggle"),
-    # )
-    # use_line_number_select: bpy.types.BoolProperty(
-    #     name="Line Number Select",
-    #     description="Select lines from line number margin",
-    #     default=True,
-    #     update=kmi_cb("line_select", "use_line_number_select"),
-    # )
-    # triple_click: bpy.types.EnumProperty(
-    #     name="Triple-Click",
-    #     description="Type of selection when doing a triple click",
-    #     default='LINE',
-    #     items=(("LINE", "Line", "Select entire line"),
-    #            ("PATH", "Path", "Select entire python path")),
-    # )
-
-    def draw_plugins(self, context, layout):
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-        for plugin in self.plugins:
-            module = plugin.module
-            box = layout.box()
-            box.emboss = 'NORMAL'
-            row = box.row(heading=plugin.name.replace("_", " ").title())
-            split = row.split()
-            row = split.row()
-            row.prop(plugin, "enabled", text="Enable", toggle=True)
-
-            row.label()
-
-            if plugin.enabled:
-                draw_func = getattr(module, "draw_settings", None)
-
-                # For custom plugin draw method
-                if draw_func is not None:
-                    if plugin.show_settings:
-                        col = box.column()
-                        col.separator(factor=0.5)
-                        draw_func(self, context, col)
-                        col.separator(factor=0.5)
-
-                    kwargs = {"text": "Settings", "toggle": True, "icon": "NONE"}
-
-                    # If the poll returns False, set an error icon
-                    if getattr(module, "poll_plugin", None.__class__)() is False:
-                        kwargs["icon"] = "ERROR"
-
-                    row.prop(plugin, "show_settings", **kwargs)
-                else:
-                    row.label()
-            else:
-                row.label()
-
-    # def draw_keymaps(self, context, layout):
-    #     col = layout.column(align=True)
-    #     rw = context.region.width
-    #     textension = context.window_manager.textension
-    #     show_all = textension.show_all_kmi
-    #     text = "Show All" if not show_all else "Collapse"
-    #     col.prop(textension, "show_all_kmi", text=text, emboss=False)
-    #     col.separator(factor=2)
-
-    #     kmi_range = slice(19 if not show_all else None)
-
-    #     # Custom keymaps are stored on each operator.
-    #     for cls in classes()[kmi_range]:
-    #         keymaps = getattr(cls, "_keymaps", ())
-    #         for idx, (km, kmi, note) in enumerate(keymaps):
-    #             if note == "HIDDEN":
-    #                 continue
-
-    #             km_utils.kmi_ensure(cls, idx, kmi)
-    #             self.draw_kmi(col, rw, kmi, note)
-
-    #     col.separator(factor=2)
-    #     if show_all:
-    #         col.prop(textension, "show_all_kmi", text=text, emboss=False)
-
 
     def draw(self, context):
         layout = self.layout
+        layout = layout.row()
+        layout.alignment = 'CENTER'
+        layout = layout.column()
+        layout.ui_units_x = 32
+
+        lrow = layout.row()
+        lrow.alignment = 'EXPAND'
+
+        ratio = max(1.0, (32 / ((context.region.width / system.wu) - 1.5)))
+
+        left = lrow.column(align=True)
+        left.ui_units_x = 8.5 * ratio
+        left.ui_units_y = 14
+
+        plugin_draw_func = None
         runtime = context.window_manager.textension
+        active_plugin = runtime.active_plugin_settings
 
-        row = layout.row()
-        row.prop(runtime, "tab", expand=True)
-        layout.separator()
+        row = left.box().row()
+        row.alignment = 'RIGHT'
+        row.label()
 
-        row = layout.row()
-        row.alignment = 'CENTER'
-        col = row.column(align=True)
-        # col.ui_units_x = 20
+        row1 = row.row()
+        row1.label(text="General")
+        row1.alignment = 'LEFT'
 
-        if runtime.tab == 'PLUGINS':
-            self.draw_plugins(context, col)
-        # elif runtime.tab == 'KEYMAPS':
-        #     self.draw_keymaps(context, col)
+        row2 = row.row()
+        row2.alignment = 'RIGHT'
+        if is_active := active_plugin == "general":
+            plugin_draw_func = self.draw_general
+
+        row2.operator("textension.show_settings", text="", icon="OPTIONS", depress=is_active)
+
+        for plugin in self.plugins:
+            row = left.box().row()
+            row.context_pointer_set("plugin", plugin)
+            row.emboss = 'NORMAL'
+            row.alignment = 'RIGHT'
+
+            is_enabled = plugin.enabled
+            row.operator("textension.toggle_plugin", text="", icon='QUIT', depress=is_enabled)
+
+            row1 = row.row()
+            row1.label(text=plugin.title)
+            row1.alignment = 'LEFT'
+            row1.enabled = plugin.enabled
+
+            draw_func = getattr(plugin.module, "draw_settings", None)
+
+            row2 = row.row()
+            row2.alignment = 'RIGHT'
+            if is_enabled and draw_func:
+                if is_active := active_plugin == plugin.name:
+                    plugin_draw_func = draw_func
+                row2.operator("textension.show_settings", text="", icon="OPTIONS", depress=is_active)
+
+        if not plugin_draw_func:
+            runtime.active_plugin = "general"
+            plugin_draw_func = self.draw_general
+
+        col = lrow.column()
+        row = col.row(align=True)
+        row.separator(factor=0.3)
+        col = row.column()
+        col.ui_units_x = 20
+        box = col.column()
+
+        if plugin_draw_func and active_plugin is not "none":
+            row = box.row()
+            row.alignment = 'EXPAND'
+            # row.scale_y = 0.7
+            row.box().label(text=active_plugin.replace("_", " ").title() + " Settings")
+            plugin_draw_func(self, context, box)
+        else:
+            box.label()
+
+    @staticmethod
+    def draw_general(self, context, layout):
+        layout.label(text="General settings here")
+
+
+def get_ui_scale(context, region_width):
+    v2d = context.region.view2d
+    x1 = v2d.region_to_view(0, 0)[0]
+    x2 = v2d.region_to_view(region_width, 0)[0]
+    return region_width / (x2 - x1)
 
 
 classes = (
+    TogglePlugin,
     Plugin,
     Preferences,
-    Runtime
+    Runtime,
+    ShowSettings,
 )
