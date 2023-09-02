@@ -158,11 +158,22 @@ def test_scrollbar(x, y):
     return editor.scrollbar.hit_test(x, y)
 
 
+def get_scrollbar_x_offsets_new(region_width):
+    width = Editor.scrollbar_width * (_system.wu * 0.05)
+    return region_width - width, region_width
+
+
 def enable():
     utils.add_draw_hook(draw_scrollbar, draw_index=10)
     ui.add_hit_test(test_scrollbar)
 
+    get_scrollbar_x_offsets_new.__wrapped__ = utils.get_scrollbar_x_offsets
+    utils.get_scrollbar_x_offsets = get_scrollbar_x_offsets_new
+
 
 def disable():
+    utils.get_scrollbar_x_offsets = get_scrollbar_x_offsets_new.__wrapped__
+    del get_scrollbar_x_offsets_new.__wrapped__
+
     utils.remove_draw_hook(draw_scrollbar)
     ui.remove_hit_test(test_scrollbar)
