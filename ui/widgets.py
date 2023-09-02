@@ -282,10 +282,10 @@ class Scrollbar(Widget):
         parent = self.parent
         offset, span_px = self._compute_offsets()
         x, y = parent.position_inner
+        width = parent.scrollbar_width * (_system.wu * 0.05)
 
         if self.axis == "VERTICAL":
             # Width is defined on parent and multiplied by ui scale.
-            width = parent.scrollbar_width * (_system.wu * 0.05)
             # Position the scrollbar to the parent's right edge.
             x += parent.width_inner - width
             self.rect.draw(x, y, width, parent.height)
@@ -293,9 +293,8 @@ class Scrollbar(Widget):
             if span_px > 0:
                 self.thumb.rect.draw(x, y + offset, width, span_px)
         else:
+            height = width
             width = parent.width
-            height = parent.scrollbar_width * (_system.wu * 0.05)
-
             self.rect.draw(x, y, width, height)
 
             if span_px > 0:
@@ -658,7 +657,7 @@ class TextDraw(Widget):
         # Pad the glyph baseline so the text is centered on the line.
         y_pad = (line_height - blf.dimensions(self.font_id, "x")[1]) // 2
 
-        return int(self.rect.height_inner - line_height + self.line_offset_px + y_pad + self.rect.border_width)
+        return int(self.rect.height_inner - line_height + self.line_offset_px + y_pad)
 
     def _clamp_view(self):
         # Clamp left
@@ -1306,7 +1305,7 @@ class TextView(TextDraw):
         text_y = self.get_text_y()
         text_x = self.get_text_x()
         with surface.bind():
-            blf.color(self.font_id, 1, 1, 1, 1)
+            blf.color(self.font_id, *self.foreground_color)
             for line in self.get_drawable_lines():
                 blf.position(self.font_id, text_x, text_y, 0)
                 blf.draw(self.font_id, line.string)
@@ -1315,7 +1314,6 @@ class TextView(TextDraw):
     def resize(self, size: tuple[int, int]):
         self.rect.size = size
         self._update_lines()
-        self._clamp_view()
 
     def _update_lines(self) -> list[str]:
         """Must be called when the view is resized or the text is changed."""
@@ -1325,3 +1323,4 @@ class TextView(TextDraw):
         else:
             lines = self.cached_string.splitlines()
         self.lines[:] = map(TextLine, lines)
+        self._clamp_view()
