@@ -485,6 +485,8 @@ class TextAPI(APIBase):
         self.current_line_index, self.current_character = _clamp_line_column(self, *new_anchor)
     cursor_anchor = cursor_anchor.getter(attrgetter("current_line_index", "current_character"))
 
+    cursor_columns = property(attrgetter("current_character", "select_end_character"))
+
     @cursor.setter
     def cursor(self, cursor: tuple[int, int] | TextCursor):
         try:
