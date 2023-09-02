@@ -206,22 +206,22 @@ class Rect(Vector):
     shader:     gpu.types.GPUShader
 
     def __init__(self):
-        super().__init__()
         self.resize_4d()
-
         self.blend_mode = "ALPHA"
-
-        self.uniforms = Uniforms(
-            rect=self,
+        self.uniforms   = Uniforms(
+            rect            =self,
             background_color=Vector((1.0, 1.0, 1.0, 1.0)),
-            border_color=Vector((1.0, 1.0, 1.0, 1.0)),
-            border_width=1.0,
-            corner_radius=0.0,
-            shadow=Vector((0.0, 0.0, 0.0, 0.0))
+            border_color    =Vector((1.0, 1.0, 1.0, 1.0)),
+            border_width    =1.0,
+            corner_radius   =0.0,
+            shadow          =Vector((0.0, 0.0, 0.0, 0.0))
         )
 
     def draw(self, x, y, w, h):
-        self[:] = x, y, w, h
+        self[0] = x
+        self[1] = y
+        self[2] = w
+        self[3] = h
         self.shader.bind()
         consume(starmap(self.shader.uniform_float, dict.items(self.uniforms)))
         blend_set(self.blend_mode)
