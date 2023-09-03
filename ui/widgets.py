@@ -1,16 +1,15 @@
 # This module implements widgets.
 
 from textension.utils import _check_type, _forwarder, _system, _context, \
-    test_and_update, safe_redraw, close_cells, inline, set_name, \
+    safe_redraw, close_cells, inline, set_name, \
     LinearStack, Adapter, soft_property, _named_index
-from textension.ui.utils import set_focus, get_focus
+from textension.ui.utils import set_widget_focus, get_widget_focus
 from textension.ui.gl import Rect, Texture
 from textension.core import find_word_boundary
 
 from functools import partial
 from itertools import islice
 from operator import methodcaller, itemgetter
-from collections import defaultdict
 from typing import Optional, Union
 
 from textension.overrides.default import (
@@ -384,8 +383,10 @@ class EdgeResizer(Widget):
         super().__init__(parent=parent)
         self.subject = subject
 
-    def set_alpha(self, value) -> None:
-        if test_and_update(self.rect.background_color, "w", value):
+    def set_alpha(self, value: float) -> None:
+        color = self.rect.background_color
+        if color.w != value:
+            color.w = value
             safe_redraw()
 
     def on_enter(self) -> None:
@@ -694,24 +695,27 @@ class InputAdapter(Adapter):
         self.input.set_string(data)
 
     def poll_undo(self):
-        return self.input is get_focus()
+        return self.input is get_widget_focus()
 
     def poll_redo(self):
-        return self.input is get_focus()
+        return self.input is get_widget_focus()
 
 
-def input_undo(meth):
+def input_undo(input_method):
 
-    @close_cells(meth)
-    @set_name(f"{meth.__name__} (undomethod)")
-    def wrapper(self: "Input", *args, undo=True, **kw):
-
+    @close_cells(input_method)
+    @set_name(input_method.__name__)
+    def wrapper(self: "Input", *args, **kw):
         self.state.update_cursor()
-        ret = meth(self, *args, **kw)
 
-        if undo:
-            self.state.push_undo(tag=meth.__name__)
-        return undo
+        # Result can be None, True or False. None/True will push.
+        result = input_method(self, *args, **kw)
+
+        if result is not False:
+            self.state.push_undo(tag=input_method.__name__)
+
+        # True because input methods block all other hooks.
+        return True
     return wrapper
 
 
@@ -764,20 +768,9 @@ class Input(TextDraw):
             ED_OT_redo.remove_poll(self.state.poll_redo)
             ED_OT_redo.remove_pre(self.state.pop_redo)
 
-            TEXT_OT_copy.remove_pre(self.copy)
-            TEXT_OT_cut.remove_pre(self.cut)
-            TEXT_OT_delete.remove_pre(self.delete)
-            TEXT_OT_insert.remove_pre(self.write)
-            TEXT_OT_move.remove_pre(self.navigate)
-            TEXT_OT_move_select.remove_pre(self.navigate)
-            TEXT_OT_paste.remove_pre(self.paste)
-            TEXT_OT_select_all.remove_pre(self.select_all)
-            TEXT_OT_line_break.remove_pre(self.line_break)
+            for override, input_method in input_override_map.items():
+                override.remove_pre(getattr(self, input_method.__name__))
             self._hooks_set = False
-
-    def line_break(self):
-        # Does nothing for now. Just eat the line break event.
-        pass
 
     def set_hooks(self):
         if not self._hooks_set:
@@ -787,24 +780,17 @@ class Input(TextDraw):
             ED_OT_redo.add_poll(self.state.poll_redo)
             ED_OT_redo.add_pre(self.state.pop_redo)
 
-            TEXT_OT_copy.add_pre(self.copy)
-            TEXT_OT_cut.add_pre(self.cut)
-            TEXT_OT_delete.add_pre(self.delete)
-            TEXT_OT_insert.add_pre(self.write)
-            TEXT_OT_move.add_pre(self.navigate)
-            TEXT_OT_move_select.add_pre(self.navigate)
-            TEXT_OT_paste.add_pre(self.paste)
-            TEXT_OT_select_all.add_pre(self.select_all)
-            TEXT_OT_line_break.add_pre(self.line_break)
+            for override, input_method in input_override_map.items():
+                override.add_pre(getattr(self, input_method.__name__))
             self._hooks_set = True
 
     def set_hint(self, string: str):
-        _check_type(string, str)
         self.hint = string
 
-    def set_string(self, string: str, select: bool = False):
-        _check_type(string, str)
+    def set_string(self, string: str, select: bool = False, reset: bool = False):
         self.string = string
+        if reset:
+            self.state.reset()
         if select:
             self.set_cursor(0, len(string))
 
@@ -900,57 +886,60 @@ class Input(TextDraw):
 
     @property
     def is_focused(self) -> bool:
-        return self is get_focus()
+        return self is get_widget_focus()
 
     def on_activate(self):
-        set_focus(self)
+        set_widget_focus(self)
         if _context.window.event.type_string == 'LEFTMOUSE':
             bpy.ops.textension.ui_input_set_cursor('INVOKE_DEFAULT')
 
     def on_focus(self):
-        self.set_hooks()
         self.update_uniforms(border_color=(0.5, 0.5, 0.5, 1.0))
+        self.set_hooks()
         safe_redraw()
 
     def on_defocus(self):
-        self.remove_hooks()
         self.update_uniforms(border_color=(0.3, 0.3, 0.3, 1.0))
+        self.remove_hooks()
         # When de-focused, selection is removed.
-        if self.selected_text == self.string:
+        if self.selected_text != self.string:
             self.set_cursor(len(self.string))
-        safe_redraw()
+        else:
+            safe_redraw()
 
     def set_cursor(self, start: int, end: int = None):
         if end is None:
             end = start
 
-        self.set_anchor(start)
-        self.set_focus(end)
+        self.set_cursor_anchor(start)
+        self.set_cursor_focus(end)
         safe_redraw()
 
-    def set_focus(self, focus):
+    def set_cursor_focus(self, focus):
         self.focus = max(0, min(len(self.string), focus))
 
-    def set_anchor(self, anchor):
+    def set_cursor_anchor(self, anchor):
         self.anchor = max(0, min(len(self.string), anchor))
 
     @input_undo
-    def write(self, s: str):
+    def insert(self, s: str):
         start, end = self.range
         tmp = list(self.string)
         tmp[start:end] = s
         self.string = "".join(tmp)
         self.set_cursor(start + len(s))
-        safe_redraw()
 
     @input_undo
     def delete(self, mode: str):
         start, end = self.range
-        self._delete(mode)
+        if not self._delete(mode):
+            return False
         self.set_cursor(start)
-        safe_redraw()
 
     def _delete(self, mode: str):
+        if not any(self.range):
+            return False
+
         start, end = self.range
         string = self.string
 
@@ -966,12 +955,10 @@ class Input(TextDraw):
         tmp = list(string)
         del tmp[start:end]
         self.string = "".join(tmp)
+        return True
 
 
-    def navigate(self, mode: str, select=False):
-        _check_type(mode, str)
-        _check_type(select, bool)
-
+    def move(self, mode: str, select=False):
         start, end = self.range
         if mode == 'LINE_BEGIN':
             rel_index = -self.focus
@@ -996,14 +983,13 @@ class Input(TextDraw):
             return
 
         if select:
-            self.set_focus(self.focus + rel_index)
+            self.set_cursor_focus(self.focus + rel_index)
+            safe_redraw()
         else:
             self.set_cursor(abs_index)
-        safe_redraw()
 
     def select_all(self):
         self.set_cursor(0, len(self.string))
-        safe_redraw()
 
     @property
     def selected_text(self):
@@ -1020,7 +1006,7 @@ class Input(TextDraw):
             string = str(_context.window_manager.clipboard)
         except:
             raise
-        self.write(string, undo=False)
+        self.insert(string, undo=False)
 
     def get_cursor(self):
         return self.anchor, self.focus
@@ -1028,9 +1014,27 @@ class Input(TextDraw):
     @input_undo
     def cut(self):
         self.copy()
-        if self.selected_text:
-            self._delete('PREVIOUS_CHARACTER')
+        if self.selected_text and self._delete('PREVIOUS_CHARACTER'):
             safe_redraw()
+
+    @input_undo
+    def line_break(self):
+        # Does nothing for now. Just eat the line break event.
+        pass
+
+
+input_override_map = {
+    TEXT_OT_copy:        Input.copy,
+    TEXT_OT_cut:         Input.cut,
+    TEXT_OT_delete:      Input.delete,
+    TEXT_OT_insert:      Input.insert,
+    TEXT_OT_move:        Input.move,
+    TEXT_OT_move_select: Input.move,
+    TEXT_OT_paste:       Input.paste,
+    TEXT_OT_select_all:  Input.select_all,
+    TEXT_OT_line_break:  Input.line_break
+}
+
 
 
 class OverlayRect(Rect):

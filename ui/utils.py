@@ -100,7 +100,7 @@ def _hit_test(clear=False):
 
 
 
-def set_focus(widget):
+def set_widget_focus(widget):
     space_data = _context.space_data
     _check_type(space_data, bpy.types.Space)
 
@@ -113,7 +113,7 @@ def set_focus(widget):
     widget.on_focus()
 
 
-def get_focus():
+def get_widget_focus():
     space_data = _context.space_data
     if stack := _focus_stack.get(space_data):
         return stack[-1]

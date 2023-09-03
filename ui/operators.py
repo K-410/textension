@@ -300,11 +300,11 @@ class TEXTENSION_OT_ui_input_set_cursor(TextOperator):
         if event.type != 'LEFTMOUSE' or event.value != 'PRESS':
             return {'PASS_THROUGH'}
         
-        self.input = runtime.hit
+        self.input: Input = runtime.hit
         count = self.input.clicks.get_and_track()
 
         if count == 1:
-            self.input.set_anchor(self.hit_test_column(event))
+            self.input.set_cursor_anchor(self.hit_test_column(event))
             self.modal = self.modal_select
 
         elif count == 2:

@@ -1,9 +1,9 @@
 
 
-from textension.ui.widgets import Input, OverlayRect, Widget
+from textension.ui.widgets import Input, Widget
 from textension.utils import _context, factory, km_def, TextOperator
 from textension import utils
-from textension.ui.utils import set_focus, _visible
+from textension.ui.utils import set_widget_focus, _visible
 
 
 class Search(Widget):
@@ -46,7 +46,7 @@ class Search(Widget):
         if self not in _visible:
             _visible.append(self)
 
-        set_focus(self.input)
+        set_widget_focus(self.input)
         utils.safe_redraw()
 
 
@@ -78,7 +78,8 @@ class TEXTENSION_OT_search(TextOperator):
         text = context.edit_text
         if text.current_line_index == text.select_end_line_index and \
             (string := text.selected_text):
-                search.input.set_string(string, select=True)
+                # Setting a new search string resets the input undo.
+                search.input.set_string(string, select=True, reset=True)
 
         else:
             search.input.select_all()
@@ -92,7 +93,7 @@ classes = (
 
 def enable():
     utils.register_classes(classes)
-    utils.add_draw_hook(draw_search, draw_index=10)
+    utils.add_draw_hook(draw_search, draw_index=11)
 
     from textension.ui.utils import add_hit_test
     add_hit_test(test_search)

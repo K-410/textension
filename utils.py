@@ -770,6 +770,10 @@ class LinearStack:
     undo: list[Step]
     redo: list[Step]
 
+    def reset(self):
+        """Reset stacks."""
+        self.__init__(self.adapter)
+
     def __init__(self, adapter: Adapter):
         self.undo = []
         self.redo = []
