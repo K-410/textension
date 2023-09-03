@@ -875,4 +875,17 @@ class Aggregation(tuple, metaclass=_pydevd_repr_override_meta):
     def __new__(self, elements): return tuple.__new__
 
     def __repr__(self):
-        return f"{__class__.__name__}"
+        getter_type = type(_named_index(0))
+        info = ""
+        for k, v in self.__class__.__dict__.items():
+            if isinstance(v, getter_type):
+                first_obj = getattr(self, k)
+                try:
+                    obj_name = first_obj.__name__
+                except:
+                    obj_name = type(first_obj).__name__
+                if len(obj_name) > 30:
+                    obj_name = obj_name[:27] + ".."
+                info = f"({k}: {obj_name},..)"
+                break
+        return f"{self.__class__.__name__}{info}"
