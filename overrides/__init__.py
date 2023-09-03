@@ -1,6 +1,6 @@
 # This package implements overrides for internal operators.
 
-from textension.utils import _context, CFuncPtr, defer, namespace, close_cells, set_name, classproperty
+from textension.utils import _context, CFuncPtr, defer, namespace, close_cells, set_name, classproperty, filtertrue
 from textension import btypes
 
 from operator import methodcaller
@@ -108,15 +108,14 @@ class OpOverride:
             @set_name(f"{cls.__name__}.{name} (overridden)")
             def wrapper(ctx, op=None, event=None, real=None):
                 instance = cls()
-                instance.args = tuple(filter(None, (ctx, op, event)))
+                instance.args = tuple(filtertrue((ctx, op, event)))
                 instance.real = real
 
-                # We need to return even on exceptions.
-                result = btypes.defs.OPERATOR_CANCELLED
                 try:
-                    result = call_method(instance)
-                finally:
-                    return result
+                    return call_method(instance)
+                except:
+                    # We need to return even on exceptions.
+                    return btypes.defs.OPERATOR_CANCELLED
 
             cls.overrides += override(cls.__name__, name, wrapper),
 
@@ -126,6 +125,7 @@ class OpOverride:
         cls.overrides.clear()
 
     def default(self):
+        """Call the default, unoverridden operator method."""
         return self.real(*self.args)
 
 

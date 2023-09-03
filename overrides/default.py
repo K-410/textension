@@ -3,10 +3,11 @@
 from textension.btypes.defs import OPERATOR_CANCELLED, OPERATOR_FINISHED, OPERATOR_PASS_THROUGH, OPERATOR_RUNNING_MODAL
 from textension.btypes import wmWindowManager, event_type_to_string
 from textension.core import test_line_numbers, iter_brackets, ensure_cursor_view, copy_selection
-from textension.utils import _context, add_keymap, _call, cm, tag_text_dirty, unsuppress, classproperty, starchain
+from textension.utils import _context, add_keymap, _call, cm, tag_text_dirty, unsuppress, classproperty, starchain, Aggregation, _named_index, _forwarder
 from textension.ui import get_mouse_region
 from textension.operators import find_word_boundary
 
+from functools import partial
 from typing import Callable
 from . import OpOverride
 import re
@@ -17,7 +18,27 @@ delete_hooks = []
 insert_hooks = []
 
 
+class Hook(Aggregation):
+    function  = _named_index(0)
+    space     = _named_index(1)
+    is_global = _named_index(2)
+
+    __eq__   = _forwarder("function.__eq__")
+    __hash__ = _forwarder("function.__hash__")
+    __call__ = _forwarder("function")
+
+
+def dispatch(hooks, *args, **kw):
+    # Last added hook is called first.
+    for hook in reversed(hooks):
+        if hook.is_global or hook.space == _context.space_data:
+            if hook(*args, **kw):
+                return True
+    return False
+
+
 class Default(OpOverride):
+
     @classproperty
     def operators(cls):
         for c in Default.__subclasses__():
@@ -26,47 +47,25 @@ class Default(OpOverride):
 
     def __init_subclass__(cls):
         super().__init_subclass__()
-        cls._pre_hooks  = []  # Run before the operator, potentially blocking.
-        cls._post_hooks = []  # Run after the operator.
+        pre  = []  # Run before the operator, potentially blocking.
+        post = []  # Run after the operator.
+
+        cls.run_pre_hooks  = partial(dispatch, pre)
+        cls.run_post_hooks = partial(dispatch, post)
+
+        cls.remove_pre  = pre.remove
+        cls.remove_post = post.remove
+
+        cls.pre_hooks  = pre   # Run before the operator, potentially blocking.
+        cls.post_hooks = post  # Run after the operator.
 
     @classmethod
-    def add_pre(cls, hook: Callable, is_global: bool = False):
-        cls._pre_hooks.insert(0, (is_global, _context.space_data, hook))
+    def add_pre(cls, func: Callable, is_global: bool = False):
+        cls.pre_hooks += Hook((func, _context.space_data, is_global)),
 
     @classmethod
-    def add_post(cls, hook: Callable, is_global: bool = False):
-        cls._post_hooks.insert(0, (is_global, _context.space_data, hook))
-
-    @classmethod
-    def remove_pre(cls, ref_hook: Callable):
-        return cls._remove_hook(cls._pre_hooks, ref_hook)
-
-    @classmethod
-    def remove_post(cls, ref_hook: Callable):
-        return cls._remove_hook(cls._post_hooks, ref_hook)
-
-    @classmethod
-    def run_pre_hooks(cls, *args, **kw):
-        return cls._run_hooks(cls._pre_hooks, *args, **kw)
-
-    @classmethod
-    def run_post_hooks(cls, *args, **kw):
-        return cls._run_hooks(cls._post_hooks, *args, **kw)
-
-    @classmethod
-    def _remove_hook(cls, hooks, ref_hook):
-        for index, (is_global, space_data, hook) in enumerate(hooks):
-            if hook == ref_hook:
-                return hooks.pop(index)
-        raise Exception(f"Hook '{ref_hook}' not registered.\n{hooks}" )
-
-    @staticmethod
-    def _run_hooks(hooks, *args, **kw):
-        for is_global, space, hook in hooks:
-            if is_global or space == _context.space_data:
-                if hook(*args, **kw):
-                    return True
-        return False
+    def add_post(cls, func: Callable, is_global: bool = False):
+        cls.post_hooks += Hook((func, _context.space_data, is_global)),
 
 
 def _in_string(text):
@@ -940,16 +939,11 @@ class UndoOverride(Default):
         cls._sync_pre_hooks = []
         cls._sync_post_hooks = []
 
-    @classmethod
-    def add_poll(cls, hook):
-        cls._poll_hooks.insert(0, hook)
-
-    @classmethod
-    def remove_poll(cls, hook):
-        cls._poll_hooks.remove(hook)
+        cls.add_poll = cls._poll_hooks.append
+        cls.remove_poll = cls._poll_hooks.remove
 
     def poll(self):
-        for hook in self._poll_hooks:
+        for hook in reversed(self._poll_hooks):
             if result := hook():
                 return result
         return self.default()
