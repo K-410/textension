@@ -145,6 +145,25 @@ def get_dict(cls):
 def get_mro(cls):
     return type.__dict__["__mro__"].__get__
 
+
+@inline
+def get_mro_dict(obj) -> dict:
+    from builtins import type, map, reversed, isinstance
+    from .utils import get_mro
+
+    @inline
+    def compose(dicts_iterable) -> dict:
+        from functools import reduce
+        from operator import or_
+        return partial(reduce, or_)
+
+    def get_mro_dict(obj) -> dict:
+        if not isinstance(obj, type):
+            obj = type(obj)
+        return compose(map(get_dict, reversed(get_mro(obj))))
+    return get_mro_dict
+
+
 @inline
 def get_module_dict(module):
     return type(bpy).__dict__["__dict__"].__get__
@@ -866,6 +885,11 @@ class _pydevd_repr_override_meta(type):
         return super().__name__
 
 
+@inline
+def _map_named_indices(iterables):
+    return partial(map, type(_named_index(0)).__instancecheck__)
+
+
 # Base for aggregate initialization classes.
 class Aggregation(tuple, metaclass=_pydevd_repr_override_meta):
     __slots__ = ()
@@ -875,17 +899,16 @@ class Aggregation(tuple, metaclass=_pydevd_repr_override_meta):
     def __new__(self, elements): return tuple.__new__
 
     def __repr__(self):
-        getter_type = type(_named_index(0))
-        info = ""
-        for k, v in self.__class__.__dict__.items():
-            if isinstance(v, getter_type):
-                first_obj = getattr(self, k)
-                try:
-                    obj_name = first_obj.__name__
-                except:
-                    obj_name = type(first_obj).__name__
-                if len(obj_name) > 30:
-                    obj_name = obj_name[:27] + ".."
-                info = f"({k}: {obj_name},..)"
-                break
-        return f"{self.__class__.__name__}{info}"
+        mro_dict = get_mro_dict(self.__class__)
+        
+        for key in compress(mro_dict, _map_named_indices(mro_dict.values())):
+            first_obj = getattr(self, key)
+            try:
+                obj_name = first_obj.__name__
+            except:
+                obj_name = f"[{type(first_obj).__name__}]"
+            if len(obj_name) > 30:
+                obj_name = obj_name[:27] + ".."
+            info = f"{key}: {obj_name},.."
+            return f"{self.__class__.__name__}({info})"
+        return f"{self.__class__.__name__}"
