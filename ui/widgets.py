@@ -503,9 +503,12 @@ class TextDraw(Widget):
 
     num_lines: int = property(methodcaller("count_lines"))
 
+    default_width  = 260
+    default_height = 158
+
     def __init__(self, parent: Optional[Widget] = None) -> None:
         super().__init__(parent=parent)
-        self.update_uniforms(rect=(0, 0, 260, 158))
+        self.update_uniforms(rect=(0, 0, self.default_width, self.default_height))
 
         self.lines   = []
         self.resizer = BoxResizer(self)
