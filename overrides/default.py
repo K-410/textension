@@ -3,7 +3,7 @@
 from textension.btypes.defs import OPERATOR_CANCELLED, OPERATOR_FINISHED, OPERATOR_PASS_THROUGH, OPERATOR_RUNNING_MODAL
 from textension.btypes import wmWindowManager, event_type_to_string
 from textension.core import test_line_numbers, iter_brackets, ensure_cursor_view, copy_selection
-from textension.utils import _context, add_keymap, _call, cm, tag_text_dirty, unsuppress, classproperty, starchain, Aggregation, _named_index, _forwarder
+from textension.utils import _context, add_keymap, _call, cm, tag_text_dirty, unsuppress, classproperty, starchain, Aggregation, _named_index, _forwarder, _class_forwarder
 from textension.ui import get_mouse_region
 from textension.operators import find_word_boundary
 
@@ -38,6 +38,10 @@ def dispatch(hooks, *args, **kw):
 
 
 class Default(OpOverride):
+    pre_hooks:  list
+    post_hooks: list
+    remove_pre  = _class_forwarder("pre_hooks.remove")
+    remove_post = _class_forwarder("post_hooks.remove")
 
     @classproperty
     def operators(cls):
@@ -47,17 +51,11 @@ class Default(OpOverride):
 
     def __init_subclass__(cls):
         super().__init_subclass__()
-        pre  = []  # Run before the operator, potentially blocking.
-        post = []  # Run after the operator.
+        cls.pre_hooks  = []  # Run before the operator, potentially blocking.
+        cls.post_hooks = []  # Run after the operator.
 
-        cls.run_pre_hooks  = partial(dispatch, pre)
-        cls.run_post_hooks = partial(dispatch, post)
-
-        cls.remove_pre  = pre.remove
-        cls.remove_post = post.remove
-
-        cls.pre_hooks  = pre   # Run before the operator, potentially blocking.
-        cls.post_hooks = post  # Run after the operator.
+        cls.run_pre_hooks  = partial(dispatch, cls.pre_hooks)
+        cls.run_post_hooks = partial(dispatch, cls.post_hooks)
 
     @classmethod
     def add_pre(cls, func: Callable, is_global: bool = False):
@@ -66,20 +64,6 @@ class Default(OpOverride):
     @classmethod
     def add_post(cls, func: Callable, is_global: bool = False):
         cls.post_hooks += Hook((func, _context.space_data, is_global)),
-
-
-def _in_string(text):
-    sell, selc = text.cursor_focus
-    line_format = text.lines[sell].format
-
-    if b"l" in line_format and selc < len(line_format):
-        return line_format[selc] == 108
-
-    line, col = text.cursor_sorted[:2]
-    for type, start, end in iter_brackets(text.as_string(), strict=False):
-        if start < (line, col) < end and type > 0:  # Single or triple quoted string.
-            return True
-    return False
 
 
 class TEXT_OT_insert(Default):
@@ -91,13 +75,14 @@ class TEXT_OT_insert(Default):
             return OPERATOR_CANCELLED
 
         # Pass on when mouse hovers the line numbers margin.
-        # XXX: test_line_numbers isn't even working.
+        # TODO: test_line_numbers isn't even working.
         # if test_line_numbers(*get_mouse_region()):
         #     return OPERATOR_PASS_THROUGH
 
         # Pass on zero-length text inputs.
         if not typed:
             return OPERATOR_PASS_THROUGH
+
         ColumnRetainer.clear()
 
         # Some keys generate more than 1 character.
@@ -148,7 +133,19 @@ class TEXT_OT_insert(Default):
 
                 # .. then check whether we're inside a string
                 # to figure out if we should add a closing quote.
-                in_string = _in_string(text)
+                line_format = text.lines[sell].format
+
+                in_string = False
+                # Check the line format first, if it exists.
+                if b"l" in line_format and selc < len(line_format):
+                    in_string = line_format[selc] == 108
+
+                else:
+                    for type, start, end in iter_brackets(text.as_string(), strict=False):
+                        # Single or triple quoted string.
+                        if start < (line, col) < end and type > 0:
+                            in_string = True
+                            break
 
                 # If the character forms a multi-line bracket, close.
                 if (ml := body[curc - 2: curc] + typed) in {'"""', "'''"} and next_char != typed and \
@@ -238,7 +235,6 @@ class TEXT_OT_cut(Default):
 
 def get_enum_type(override: Default, fallback=None):
     from operator import attrgetter
-    from itertools import chain
 
     names = ("shift", "ctrl", "alt", "oskey")
     get_kmis = attrgetter("keymap_items")
@@ -281,7 +277,6 @@ class TEXT_OT_delete(Default):
             cursor_sel = None
 
         else:
-
             body = text.current_line.body
             if "PREVIOUS" in delete_type:
                 if line == col == 0:
