@@ -1076,6 +1076,16 @@ class ListBox(TextDraw):
 
     font_id = 1
 
+    # Horizontal scrollbar doesn't make sense on ListBoxes.
+    show_horizontal_scrollbar = False
+
+    @property
+    def active_entry(self):
+        index = self.active.index
+        if index is not -1:
+            return self.lines[index]
+        return None
+
     def __init__(self, parent: Widget = None):
         super().__init__(parent=parent)
 
