@@ -73,7 +73,7 @@ def inline_class(*args, star=True):
 
 
 @inline
-def lazy_overwrite(method):
+def lazy_overwrite(method) -> property:
     class lazy_overwrite:
         __slots__ = ("func", "name")
         def __init__(self, func):
@@ -82,6 +82,20 @@ def lazy_overwrite(method):
 
         def __get__(self, obj, objclass):
             ret = obj.__dict__[self.name] = self.func(obj)
+            return ret
+    return lazy_overwrite
+
+
+@inline
+def lazy_class_overwrite(method) -> property:
+    class lazy_overwrite:
+        __slots__ = ("func", "name")
+        def __init__(self, func):
+            self.name = func.__name__
+            self.func = func
+
+        def __get__(self, obj_unused, objclass):
+            setattr(objclass, self.name, ret := self.func(objclass))
             return ret
     return lazy_overwrite
 
@@ -119,6 +133,13 @@ class _soft_attribute_error:
         def raise_attribute_error(self):
             raise AttributeError
         return soft_property(raise_attribute_error)
+
+
+@inline
+class defaultdict_list:
+    def __new__(cls):
+        from collections import defaultdict
+        return partial(defaultdict, list)
 
 
 @inline
@@ -260,6 +281,10 @@ def _descriptor(func, setter=None):
 
 def _forwarder(*strings: str, rtype: _T = None) -> _T:
     return property(operator.attrgetter(*strings))
+
+
+def _class_forwarder(*strings: str, rtype: _T = None) -> _T:
+    return classproperty(operator.attrgetter(*strings))
 
 
 try:
