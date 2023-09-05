@@ -166,6 +166,14 @@ def get_dict(cls):
 def get_mro(cls):
     return type.__dict__["__mro__"].__get__
 
+@inline
+def dict_get(instance_dict):
+    return dict.get
+
+@inline
+def obj_get(obj, name):
+    return object.__getattribute__
+
 
 @inline
 def get_mro_dict(obj) -> dict:
