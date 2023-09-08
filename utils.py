@@ -672,6 +672,13 @@ class cm:
             pass
 
 
+# KeyMap.name: (space_type, region_type)
+default_keymap_data = {
+    "Text":         ('TEXT_EDITOR', 'WINDOW'),
+    "Text Generic": ('TEXT_EDITOR', 'WINDOW')
+}
+
+
 def get_addon_keymap(keymap_name):
     kc = _context.window_manager.keyconfigs
     km = kc.addon.keymaps.get(keymap_name)
@@ -679,12 +686,17 @@ def get_addon_keymap(keymap_name):
     if km is None:
         default_km = kc.default.keymaps.get(keymap_name)
         if not default_km:
-            return None
+            if keymap_name not in default_keymap_data:
+                assert False, f"Unhandled default keymap name: {keymap_name}"
+            space_type, region_type = default_keymap_data[keymap_name]
+        else:
+            space_type  = default_km.space_type
+            region_type = default_km.region_type
 
         km = kc.addon.keymaps.new(
             keymap_name,
-            space_type=default_km.space_type,
-            region_type=default_km.region_type,
+            space_type=space_type,
+            region_type=region_type,
             modal=getattr(km, "is_modal", False)  # 3.3.0 and up doesn't have this
         )
 
@@ -939,7 +951,10 @@ class Aggregation(tuple, metaclass=_pydevd_repr_override_meta):
             try:
                 obj_name = first_obj.__name__
             except:
-                obj_name = f"[{type(first_obj).__name__}]"
+                if isinstance(first_obj, str):
+                    obj_name = first_obj
+                else:
+                    obj_name = f"[{type(first_obj).__name__}]"
             if len(obj_name) > 30:
                 obj_name = obj_name[:27] + ".."
             info = f"{key}: {obj_name},.."
