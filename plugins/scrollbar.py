@@ -22,12 +22,12 @@ class Editor(TextDraw):
 
     @property
     def top(self):
-        return self.space_data.top + (self.space_data.runtime._offs_px[1] / self.line_height)
+        return self.space_data.top + (self.space_data.runtime.scroll_ofs_px[1] / self.line_height)
 
     @top.setter
     def top(self, new_top):
         self.space_data.top = int(new_top)
-        self.space_data.runtime._offs_px[1] = int((new_top % 1.0) * self.line_height) 
+        self.space_data.runtime.scroll_ofs_px[1] = int((new_top % 1.0) * self.line_height) 
 
     @property
     def line_height(self):

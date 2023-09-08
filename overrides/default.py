@@ -704,7 +704,7 @@ def restore_view():
 
 @cm
 def restore_offset():
-    offsets = _context.space_data.runtime._offs_px
+    offsets = _context.space_data.runtime.scroll_ofs_px
     offset = offsets[1]
     yield offset
     offsets[1] = offset

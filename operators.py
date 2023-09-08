@@ -121,7 +121,7 @@ class TEXTENSION_OT_snap_select(TextOperator):
             x, y = get_mouse_region()
 
             # Support unlocked offsets.
-            y -= rt._offs_px[1]
+            y -= rt.scroll_ofs_px[1]
 
             # Forward selection needs a character's width offset.
             if hit_test_cursor(x, y) >= self.init_focus:
@@ -173,7 +173,7 @@ class TEXTENSION_OT_line_select(TextOperator):
             return {'CANCELLED'}
         elif event.type in {'MOUSEMOVE', 'TIMER'}:
             x, y = get_mouse_region()
-            offset = context.space_data.runtime._offs_px[1]
+            offset = context.space_data.runtime.scroll_ofs_px[1]
 
             _call("TEXT_OT_cursor_set", {}, {"x": x, "y": y - offset}, 'EXEC_DEFAULT')
 
@@ -242,7 +242,7 @@ class ScrollAccumulator:
             instance.buffer = {}
             instance.rel_lines = 0
             # The starting offset into next line.
-            instance.line_offset = instance.st_rt._offs_px[1] / st.runtime.lheight_px
+            instance.line_offset = instance.st_rt.scroll_ofs_px[1] / st.runtime.lheight_px
             instance.prev_lines = 0
             instance.clamp = 0
             instance.start_top = st.internal.top
@@ -289,7 +289,7 @@ class ScrollAccumulator:
                 self.prev_lines = lines
                 self.clamp = 0
                 offset_factor = linesf - lines
-            self.st_rt._offs_px[1] = int(offset_factor * self.st_rt.lheight_px)
+            self.st_rt.scroll_ofs_px[1] = int(offset_factor * self.st_rt.lheight_px)
 
     def unregister(self, job):
         self.line_offset += self.buffer.pop(job)
@@ -357,7 +357,7 @@ class TEXTENSION_OT_scroll_continuous(TextOperator):
 
         y = get_mouse_region()[1]
         st = context.space_data
-        offsets = st.runtime._offs_px
+        offsets = st.runtime.scroll_ofs_px
         internal = context.region.internal
 
         RGN_DRAW = 1

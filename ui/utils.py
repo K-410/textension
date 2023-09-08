@@ -51,11 +51,11 @@ def main_draw(context, region):
 
     if max_top < 0:
         max_top = 0
-    offset = rt._offs_px[1] / line_height
+    offset = rt.scroll_ofs_px[1] / line_height
 
     if dna.top + offset > max_top:
         dna.top = int(max_top)
-        rt._offs_px[1] = int(max_top % 1.0 * line_height)
+        rt.scroll_ofs_px[1] = int(max_top % 1.0 * line_height)
         runtime.main_draw(context, region)
 
 

@@ -165,7 +165,7 @@ def ensure_cursor_view(action: str = "lazy", smooth=True, threshold=2, speed=1.0
 
     line, column = text.cursor_focus
 
-    line_offset = st.runtime._offs_px[1] / st.line_height
+    line_offset = st.runtime.scroll_ofs_px[1] / st.line_height
     top = st.internal.top + line_offset
     rel_bottom = st.visible_lines - threshold
 
@@ -471,7 +471,7 @@ def get_wrap_width(st):
     runtime = st.runtime
     cwidth_px = runtime.cwidth_px or 8
     if st.show_line_numbers:
-        x = cwidth_px * (runtime.lnum + 3)
+        x = cwidth_px * (runtime.line_number_display_digits + 3)
     else:
         x = cwidth_px * 2
     ret = (st.region.width - _system.wu - x) // cwidth_px

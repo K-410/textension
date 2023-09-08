@@ -680,7 +680,7 @@ class SpaceTextEditorAPI(APIBase):
 
     @CachedStruct
     def offsets(self):
-        return self.runtime._offs_px
+        return self.runtime.scroll_ofs_px
 
     @CachedStruct
     def scroll_select_y(self):
