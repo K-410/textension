@@ -1052,7 +1052,7 @@ def revalidate_tabs():
 def clear_region_cache():
     tabs.data.clear()
 
-def enable():
+def _enable():
     # TODO: Store tabs in a sensible location
     global tabs
     tabs = Tabs()
@@ -1067,7 +1067,7 @@ def enable():
     # utils.watch_rna((bpy.types.Window, "workspace"), clear_region_cache)
 
 
-def disable():
+def _disable():
     utils.unwatch_rna(revalidate_tabs)
     # utils.unwatch_rna(clear_region_cache)
     utils.remove_hittest(test_tabs, region="HEADER")

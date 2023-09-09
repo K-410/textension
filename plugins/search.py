@@ -91,7 +91,7 @@ classes = (
 )
 
 
-def enable():
+def _enable():
     utils.register_classes(classes)
     utils.add_draw_hook(draw_search, draw_index=11)
 
@@ -99,7 +99,7 @@ def enable():
     add_hit_test(test_search)
 
 
-def disable():
+def _disable():
     utils.unregister_classes(classes)
 
     get_search.__kwdefaults__["cache"].clear()

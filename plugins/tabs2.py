@@ -255,7 +255,7 @@ def set_new_header_layout(enable: bool):
         funcs[index] = funcs[index]._org_func
 
 
-def enable():
+def _enable():
     # Workspaces changes can cause spaces and regions to be recycled.
     # The instance cache must be cleared when this happens.
     utils.watch_rna((bpy.types.Window, "workspace"), get_instance.clear)
@@ -266,7 +266,7 @@ def enable():
     set_new_header_layout(True)
 
 
-def disable():
+def _disable():
     utils.remove_draw_hook(draw_tabs, region='HEADER')
     utils.unwatch_rna(get_instance.clear)
     utils.unwatch_rna(Tabs.invalidate)
