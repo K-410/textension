@@ -1,14 +1,13 @@
 """Utilities for custom ui like drawing and hit testing."""
 
-from textension.utils import _context, noop, CFuncPtr, namespace, _check_type
-from textension.btypes import get_area_region_type, cast, SpaceType, get_space_type
+from textension.utils import _context, noop, CFuncPtr, namespace, _check_type, defaultdict_list, consume
+from textension.btypes import get_area_region_type, cast
 from textension import btypes
 
 from collections import defaultdict
 from itertools import repeat
-from typing import Optional, Callable, Union
+from typing import Callable, Union
 from operator import methodcaller
-import bpy
 
 
 __all__ = [
@@ -31,7 +30,7 @@ runtime = namespace(hit=None, main_draw=None, cursor_key=(None, None))
 _visible = []
 
 # A list of widgets that take input focus per space data.
-_focus_stack = {}
+_focus_stack = defaultdict_list()
 
 
 def main_draw(context, region):
@@ -59,7 +58,6 @@ def main_draw(context, region):
         runtime.main_draw(context, region)
 
 
-# TODO: Remove this when textension is unregistered.
 def patch_main_draw():
     _check_type(runtime.main_draw, type(None))
     cfunc = btypes.ARegionType.get_member_type("draw")
@@ -98,13 +96,8 @@ def _hit_test(clear=False):
                 runtime.hit.on_leave()
 
 
-
-
 def set_widget_focus(widget):
-    space_data = _context.space_data
-    _check_type(space_data, bpy.types.Space)
-
-    stack = _focus_stack.setdefault(space_data, [])
+    stack = _focus_stack[_context.space_data]
 
     if widget in stack:
         stack.remove(widget)
@@ -114,20 +107,16 @@ def set_widget_focus(widget):
 
 
 def get_widget_focus():
-    space_data = _context.space_data
-    if stack := _focus_stack.get(space_data):
+    if stack := _focus_stack[_context.space_data]:
         return stack[-1]
 
 
 def clear_widget_focus(space_data=None):
-    _check_type(space_data, bpy.types.Space, type(None))
-
     if space_data is None:
-        any(map(clear_widget_focus, tuple(_focus_stack)))
+        consume(map(clear_widget_focus, _focus_stack))
 
     else:
-        stack = _focus_stack.pop(space_data, None)
-        while stack:
+        while stack := _focus_stack[space_data]:
             widget = stack.pop()
             widget.on_defocus()
 
