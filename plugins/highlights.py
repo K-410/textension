@@ -1,12 +1,11 @@
 import bpy
-from mathutils import Vector
-from itertools import repeat, islice, compress, count
 import gpu
+from textension.utils import _context, _system, map_contains
 from gpu.types import GPUVertBuf, GPUBatch, GPUVertFormat
-from textension.utils import _context, _system
+from itertools import repeat, islice, compress, count
 from textension import utils
-from operator import contains, mul, floordiv, sub, add
 from functools import partial
+from operator import mul, floordiv, sub, add
 from sys import maxsize as int_max
 
 prefs: "TEXTENSION_PG_highlights" = None
@@ -53,11 +52,6 @@ def map_sub(sequence1, sequence2):
 @utils.inline
 def map_floordiv(sequence1, sequence2):
     return partial(map, floordiv)
-
-
-@utils.inline
-def map_contains(sequence1, sequence2):
-    return partial(map, contains)
 
 
 @utils.inline
