@@ -4,7 +4,7 @@
 # - ED_OT_redo:         Resync when redoing (ctrl shift z)
 # - ED_OT_undo_history: Resync when undoing a specific undo step.
 
-from textension.utils import LinearStack, Adapter, TextOperator, text_from_id, iter_spaces, consume
+from textension.utils import LinearStack, Adapter, TextOperator, text_from_id, iter_spaces, consume, map_not, filtertrue
 from textension.overrides import override, restore_capsules, _get_wmOperatorType
 from textension.overrides.default import Default
 from textension.core import ensure_cursor_view
@@ -12,6 +12,7 @@ from textension.core import ensure_cursor_view
 from textension.btypes.defs import OPERATOR_CANCELLED, OPERATOR_FINISHED, OPTYPE_UNDO
 from textension import utils
 
+from functools import partial
 from itertools import compress
 from operator import attrgetter, methodcaller, not_
 from typing import Callable
@@ -132,6 +133,16 @@ def update_cursors(stacks: list[LinearStack]):
     return methodcaller("update_cursor")
 
 
+@utils.inline
+def map_synced_ids(ids):
+    return partial(map, sync_ids.__contains__)
+
+
+@utils.inline
+def map_ids_from_texts(texts):
+    return partial(map, id_from_text)
+
+
 # The act of creating or removing texts should not be an undoable operation.
 # That's not how text editors work. So this attempts to fix that.
 @utils.unsuppress
@@ -141,7 +152,7 @@ def sync_pre():
     """
     stacks = list(map(get_undo_stack, bpy.data.texts))
     consume(map(update_cursors, stacks))
-    sync_ids.update(map(id_from_text, bpy.data.texts))
+    sync_ids.update(map_ids_from_texts(bpy.data.texts))
 
     for st in iter_spaces(space_type='TEXT_EDITOR'):
         if text := st.text:
@@ -154,8 +165,8 @@ def sync_pre():
 def sync_post():
     """Called after undo/redo/undo_history."""
     # Remove texts whose ids dont match those from sync_pre.
-    saved_ids = map(sync_ids.__contains__, map(id_from_text, bpy.data.texts))
-    bpy.data.batch_remove(compress(bpy.data.texts, map(not_, saved_ids)))
+    saved_ids = map_synced_ids(map_ids_from_texts(bpy.data.texts))
+    bpy.data.batch_remove(compress(bpy.data.texts, map_not(saved_ids)))
 
     # Restore texts Blender removed from its undo/redo step.
     for stack in tuple(undo_stacks.values()):
@@ -179,7 +190,7 @@ def purge(*unused_args):
         stack.redo.clear()
 
     undo_stacks.clear()
-    all(map(get_undo_stack, bpy.data.texts))
+    consume(map(get_undo_stack, bpy.data.texts))
 
 
 def _has_undo(cls: bpy.types.Operator):
@@ -190,7 +201,7 @@ def _has_undo(cls: bpy.types.Operator):
 def pyop_wrapper(context, op=None, event=None, method: Callable = None):
     # Ensure a stack exists before calling any operators.
     stack = get_active_stack()
-    result = method(*filter(None, (context, op, event)))
+    result = method(*filtertrue((context, op, event)))
 
     if result == OPERATOR_FINISHED:
         stack.push_undo(tag=op.contents.idname.decode())
