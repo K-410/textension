@@ -1,3 +1,6 @@
 [submodule "btypes"]
 	path = btypes
 	url = https://github.com/K-410/btypes.git
+[submodule "plugins/suggestions"]
+	path = plugins/suggestions
+	url = https://github.com/K-410/suggestions.git
