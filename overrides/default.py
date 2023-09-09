@@ -3,7 +3,7 @@
 from textension.btypes.defs import OPERATOR_CANCELLED, OPERATOR_FINISHED, OPERATOR_PASS_THROUGH, OPERATOR_RUNNING_MODAL
 from textension.btypes import wmWindowManager, event_type_to_string
 from textension.core import test_line_numbers, iter_brackets, ensure_cursor_view, copy_selection
-from textension.utils import _context, add_keymap, _call, cm, tag_text_dirty, unsuppress, classproperty, starchain, Aggregation, _named_index, _forwarder, _class_forwarder
+from textension.utils import _context, add_keymap, _call, cm, tag_text_dirty, unsuppress, classproperty, starchain, Aggregation, _named_index, _forwarder, _class_forwarder, filtertrue
 from textension.ui import get_mouse_region
 from textension.operators import find_word_boundary
 
@@ -241,7 +241,7 @@ def get_enum_type(override: Default, fallback=None):
     get_modifiers = attrgetter(*names)
 
     keymaps = _context.window_manager.keyconfigs.active.keymaps
-    kms = filter(None, map(keymaps.get, ("Text", "Text Generic")))
+    kms = filtertrue(map(keymaps.get, ("Text", "Text Generic")))
 
     event = override.event
     type = event_type_to_string(event.type)
