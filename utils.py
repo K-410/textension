@@ -73,6 +73,16 @@ def inline_class(*args, star=True):
 
 
 @inline
+def map_not(iterable) -> map:
+    return partial(map, operator.not_)
+
+
+@inline
+def map_contains(sequence1, sequence2):
+    return partial(map, operator.contains)
+
+
+@inline
 def lazy_overwrite(method) -> property:
     class lazy_overwrite:
         __slots__ = ("func", "name")
