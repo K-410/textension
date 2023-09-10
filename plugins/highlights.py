@@ -1,6 +1,6 @@
 import bpy
 import gpu
-from textension.utils import _context, _system, map_contains
+from textension.utils import _context, _system, map_contains, namespace
 from gpu.types import GPUVertBuf, GPUBatch, GPUVertFormat
 from itertools import repeat, islice, compress, count
 from textension import utils
@@ -34,9 +34,7 @@ void main() {
 }
 """
 
-shader = gpu.types.GPUShader(vert, frag)
-fmt = GPUVertFormat()
-fmt.attr_add(id="pos", comp_type="F32", len=2, fetch_mode="FLOAT")
+runtime = namespace(shader=None, fmt=None, bind=None, upload=None)
 
 
 @utils.inline
@@ -66,9 +64,9 @@ def to_batch_and_draw(points):
         p3 = x2, y1
         tris += p1, (x1, y1), p3, p3, p1, (x2, y2)
 
-    vbo = GPUVertBuf(fmt, len(tris))
+    vbo = GPUVertBuf(runtime.fmt, len(tris))
     vbo.attr_fill("pos", tris)
-    GPUBatch(type="TRIS", buf=vbo).draw(shader)
+    GPUBatch(type="TRIS", buf=vbo).draw(runtime.shader)
 
 
 # Calculate true top when word wrap is turned on
@@ -268,14 +266,6 @@ def draw_match():
     def set_additive_blend():
         return partial(gpu.state.blend_set, 'ADDITIVE')
 
-    @utils.inline
-    def upload_color(color):
-        return partial(shader.uniform_float, "color")
-
-    @utils.inline
-    def bind_shader():
-        return shader.bind
-
     def draw_match():
         st = _context.space_data
         text = st.text
@@ -297,19 +287,19 @@ def draw_match():
 
         clip_left, points, scroll_points = get_match_points(st, string, start, end)
 
-        bind_shader()
+        runtime.bind()
         set_alpha_blend()
 
         # Draw highlights in scrollbar.
         if prefs.show_in_scrollbar:
-            upload_color(prefs.color_scroll)
+            runtime.upload("color", prefs.color_scroll)
             to_batch_and_draw(scroll_points)
 
         set_additive_blend()
 
         # Draw highlights in text view.
-        shader.uniform_float("clip_left", clip_left)
-        upload_color(prefs.color_background)
+        runtime.upload("clip_left", clip_left)
+        runtime.upload("color", prefs.color_background)
         to_batch_and_draw(points)
     return draw_match
 
@@ -404,6 +394,19 @@ def draw_settings(prefs, context, layout):
         col.prop(self, "color_scroll")
 
 
+def add_runtime():
+    shader = gpu.types.GPUShader(vert, frag)
+    fmt = GPUVertFormat()
+    runtime.update(
+        shader=shader,
+        fmt=fmt,
+        bind=shader.bind,
+        upload=shader.uniform_float,
+    )
+    fmt.attr_add(id="pos", comp_type="F32", len=2, fetch_mode="FLOAT")
+    del shader, fmt
+
+
 def enable():
     from textension.prefs import add_settings
 
@@ -412,6 +415,7 @@ def enable():
     global prefs
     prefs = add_settings(TEXTENSION_PG_highlights)
 
+    add_runtime()
     # The new editor scrollbar uses draw index 10. This draws on top.
     utils.add_draw_hook(draw_match, draw_index=11)
 
@@ -425,3 +429,4 @@ def disable():
     global prefs
     prefs = None
     utils.remove_draw_hook(draw_match)
+    runtime.reset()
