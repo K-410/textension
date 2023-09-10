@@ -391,7 +391,6 @@ def draw_settings(prefs, context, layout):
 
     col = layout.column(align=True)
     col.prop(self, "minimum_length")
-    col.prop(self, "outline_thickness")
 
     layout.separator()
 
