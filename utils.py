@@ -18,7 +18,7 @@ from typing import Callable
 from types import CellType, FunctionType
 
 from operator import methodcaller, attrgetter
-from itertools import compress
+from itertools import compress, starmap
 from functools import partial
 
 from sys import _getframe
@@ -605,13 +605,24 @@ def text_from_id(text_id: int):
     return None
 
 
+def _update_namespace(self, **kw):
+    consume(starmap(self.__setattr__, kw.items()))
+
+
+def _reset_namespace(self):
+    consume(map(self.__delattr__, self.__slots__))
+
+
 def namespace(*names: tuple[str], **defaults):
     assert all(map(str.__instancecheck__, names))
+
     class FixedNamespace:
         __slots__ = names or tuple(defaults)
+        update: Callable = _update_namespace
+        reset: Callable  = _reset_namespace
+
     namespace = FixedNamespace()
-    for k, v in defaults.items():
-        setattr(namespace, k, v)
+    namespace.update(**defaults)
     return namespace
 
 
