@@ -481,6 +481,8 @@ class TextDraw(Widget):
     top:     float = 0.0
     left:      int = 0
 
+    line_height: int
+
     lines: list[TextLine]
     foreground_color = 0.4,  0.7, 1.0,  1.0
     line_padding: float = 1.25
