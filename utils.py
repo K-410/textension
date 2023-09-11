@@ -184,6 +184,10 @@ def dict_get(instance_dict):
 def obj_get(obj, name):
     return object.__getattribute__
 
+@inline
+def get_text_line_sync_key(text):
+    """Returns a tuple of TextLine/int of the cursor focus."""
+    return attrgetter("select_end_line", "select_end_character")
 
 @inline
 def get_mro_dict(obj) -> dict:
