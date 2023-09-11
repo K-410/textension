@@ -33,7 +33,6 @@ import blf
 
 # All possible cursors to pass Window.set_cursor()
 cursor_types = set(bpy.types.Operator.bl_rna.properties["bl_cursor_pending"].enum_items.keys())
-_get_margins = itemgetter("left", "top", "right", "bottom")
 
 __all__ = [
     "BoxResizer",
@@ -539,6 +538,10 @@ class TextDraw(Widget):
 
         self.scrollbar   = Scrollbar(parent=self, axis="VERTICAL")
         self.scrollbar_h = Scrollbar(parent=self, axis="HORIZONTAL")
+
+    def set_corner_radius(self, new_radius):
+        for widget in (self, self.scrollbar, self.scrollbar.thumb):
+            widget.update_uniforms(corner_radius=new_radius)
 
     @property
     def width_inner(self) -> int:
@@ -1283,9 +1286,10 @@ class TextView(TextDraw):
 
         Example: set_margins(left=10)
         """
-        new_margins = dict(zip(("left", "top", "right", "bottom"), self.margins)) | kw
+        edges = ("left", "top", "right", "bottom")
+        new_margins = dict(zip(edges, self.margins)) | kw
         try:
-            self.margins = _Margins(map(int, _get_margins(new_margins)))
+            self.margins = _Margins(map(int, itemgetter(*edges)(new_margins)))
         except:
             raise TypeError("Keyword arguments not convertible to int")
 
