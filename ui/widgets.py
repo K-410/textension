@@ -1264,7 +1264,6 @@ class TextView(TextDraw):
     # Copy of the string as it was passed to TextView.set_from_string.
     cached_string: str = ""
 
-    cache_key:   tuple
     font_id = 0
 
     use_word_wrap: bool = True
