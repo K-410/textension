@@ -1357,7 +1357,7 @@ class TextView(TextDraw):
     def _update_lines(self) -> list[str]:
         """Must be called when the view is resized or the text is changed."""
         if self.use_word_wrap:
-            max_width = self.width - self.scrollbar_width
+            max_width = self.width - self.scrollbar_width - self.margins.horizontal
             lines = wrap_string(self.cached_string, max_width, self.font_size, self.font_id)
         else:
             lines = self.cached_string.splitlines()
