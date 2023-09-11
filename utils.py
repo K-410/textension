@@ -124,7 +124,7 @@ def lazy_forwarder(attr, path):
     return lazy_overwrite
 
 
-def soft_property(custom_getter):
+def soft_property(custom_getter) -> property:
     @inline
     class _soft_property:
         __slots__ = ()
