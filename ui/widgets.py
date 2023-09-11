@@ -1244,16 +1244,16 @@ class _Margins(tuple):
     bottom = _named_index(3)
 
     @soft_property
-    def vertical(self, obj, objclass=None):
-        value = obj.top + obj.bottom
-        obj.vertical = value
-        return value
+    def vertical(self, margin: "_Margins", unused=None):
+        """The total vertical margin (top + bottom)."""
+        margin.vertical = margin.top + margin.bottom
+        return margin.vertical
 
     @soft_property
-    def horizontal(self, obj, objclass=None):
-        value = self[0] + self[2]
-        obj.horizontal = value
-        return value
+    def horizontal(self, margin: "_Margins", unused=None):
+        """The total horizontal margin (left + right)."""
+        margin.horizontal = margin[0] + margin[2]
+        return margin.horizontal
 
 
 class TextView(TextDraw):
