@@ -1273,6 +1273,9 @@ class TextView(TextDraw):
 
     use_word_wrap: bool = True
 
+    def add_font_delta(self, delta: int):
+        self.font_size += delta
+
     def set_margins(self, **kw) -> None:
         """Set the margins of the TextView object.
 

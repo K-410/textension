@@ -3,7 +3,7 @@
 from textension.utils import TextOperator, _system, safe_redraw, km_def, defer, is_spacetext, inline, set_name
 from textension.core import find_word_boundary
 from .utils import runtime, _editors, _hit_test, get_mouse_region, set_hit, clear_widget_focus, _visible, HitTestHandler
-from .widgets import Scrollbar, Widget, Thumb, EdgeResizer, BoxResizer, TextDraw, Input
+from .widgets import Scrollbar, Widget, Thumb, EdgeResizer, BoxResizer, TextDraw, Input, TextView
 
 import time
 import bpy
@@ -375,8 +375,29 @@ class TEXTENSION_OT_ui_show(TextOperator):
         return {'CANCELLED'}
 
 
+class TEXTENSION_OT_ui_font_size(TextOperator):
+    km_def("Text Generic", 'WHEELDOWNMOUSE', 'PRESS', ctrl=True)
+    km_def("Text Generic", 'WHEELUPMOUSE', 'PRESS', ctrl=True)
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        return isinstance(runtime.hit, TextView)
+
+    def execute(self, context):
+        from textension.btypes import get_last_event_type
+        event_type = get_last_event_type()
+        delta = {'WHEELDOWNMOUSE': -1, 'WHEELUPMOUSE': 1}.get(event_type)
+
+        if not isinstance(runtime.hit, TextView) or not delta:
+            return {'PASS_THROUGH'}
+        runtime.hit.add_font_delta(delta)
+        return {'CANCELLED'}
+
+
 classes = (
     TEXTENSION_OT_ui_dismiss,
+    TEXTENSION_OT_ui_font_size,
     TEXTENSION_OT_ui_input_set_cursor,
     TEXTENSION_OT_ui_leave_handler,
     TEXTENSION_OT_ui_mouse,
