@@ -606,7 +606,12 @@ def text_from_id(text_id: int):
 
 
 def _update_namespace(self, **kw):
-    consume(starmap(self.__setattr__, kw.items()))
+    if isinstance(self, type):
+        # Class.__setattr__ is a slot wrapper.
+        attrsetter = partial(setattr, self)
+    else:
+        attrsetter = self.__setattr__
+    consume(starmap(attrsetter, kw.items()))
 
 
 def _reset_namespace(self):
