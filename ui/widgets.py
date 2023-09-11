@@ -152,12 +152,15 @@ class Widget:
 
         self.parent = parent
         self.rect   = Rect()
+        self.update_from_defaults()
 
+    def update_from_defaults(self):
         self.update_uniforms(
             background_color=self.background_color,
             border_color    =self.border_color,
             border_width    =self.border_width,
-            corner_radius   =self.corner_radius)
+            corner_radius   =self.corner_radius,
+            shadow          =self.shadow)
 
     @inline
     def hit_test(self, x: float, y: float) -> bool:
