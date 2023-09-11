@@ -121,6 +121,8 @@ class Widget:
     border_width     = 1.0
     corner_radius    = 0.0
 
+    shadow           = 0.0, 0.0, 0.0, 0.0
+
     # The cursor to set when the Widget is hit tested.
     cursor           = 'DEFAULT'
 
