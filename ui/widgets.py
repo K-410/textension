@@ -2,7 +2,7 @@
 
 from textension.utils import _check_type, _forwarder, _system, _context, \
     safe_redraw, close_cells, inline, set_name, \
-    LinearStack, Adapter, soft_property, _named_index
+    LinearStack, Adapter, soft_property, _named_index, defaultdict_list
 from textension.ui.utils import set_widget_focus, get_widget_focus
 from textension.ui.gl import Rect, Texture
 from textension.core import find_word_boundary
@@ -10,7 +10,8 @@ from textension.core import find_word_boundary
 from functools import partial
 from itertools import islice
 from operator import methodcaller, itemgetter
-from typing import Optional, Union
+from typing import Optional, Union, TypeVar, Iterable, Type
+import weakref
 
 from textension.overrides.default import (
     ED_OT_redo,
@@ -48,6 +49,8 @@ __all__ = [
     "Thumb",
     "Widget",
 ]
+
+_T = TypeVar("_T")
 
 def wrap_string(string:    str,
                 max_width: int,
@@ -124,9 +127,22 @@ class Widget:
     # For convenience. Allows using forwarders.
     context          = _context
 
+    _instance_refs: dict["Widget", list["Widget"]] = defaultdict_list()
+
+    @classmethod
+    @property
+    def instances(cls: Type[_T]) -> Iterable[_T]:
+        for ref in tuple(cls._instance_refs[cls]):
+            if instance := ref():
+                yield instance
+            else:
+                cls._instance_refs.remove(ref)
+
     def __init__(self, parent: Optional["Widget"] = None) -> None:
         _check_type(parent, Widget, type(None))
         assert self.cursor in cursor_types, self.cursor
+
+        self._instance_refs[self.__class__] += weakref.ref(self),
 
         self.children = []
         if parent is not None:
