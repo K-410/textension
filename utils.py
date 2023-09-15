@@ -48,7 +48,7 @@ PyFunction_SetClosure.restype = ctypes.c_int
 
 
 # This just converts the return values into functions for static analysis.
-def inline(func):
+def inline(func: _T) -> _T:
     if hasattr(func, "__code__"):
         code = func.__code__
         args = (None,) * code.co_argcount
@@ -147,7 +147,7 @@ class _soft_attribute_error:
 
 @inline
 class defaultdict_list:
-    def __new__(cls):
+    def __new__(cls) -> dict[list]:
         from collections import defaultdict
         return partial(defaultdict, list)
 
@@ -979,7 +979,7 @@ class Aggregation(tuple, metaclass=_pydevd_repr_override_meta):
         for key in compress(mro_dict, _map_named_indices(mro_dict.values())):
             first_obj = getattr(self, key)
             try:
-                obj_name = first_obj.__name__
+                obj_name = str(first_obj.__name__)
             except:
                 if isinstance(first_obj, str):
                     obj_name = first_obj
