@@ -971,3 +971,21 @@ class Aggregation(tuple, metaclass=_pydevd_repr_override_meta):
             info = f"{key}: {obj_name},.."
             return f"{self.__class__.__name__}({info})"
         return f"{self.__class__.__name__}"
+
+
+class Variadic(MemoryError):
+    """Container base class for frameless construction of variadic arguments.
+
+    Arguments are stored as a tuple in ``args`` and can be reassigned.
+    Use ``_variadic_index`` for assigning named argument accessors.
+    """
+    __slots__   = ()
+    __getitem__ = _forwarder("args.__getitem__")
+    __iter__    = _forwarder("args.__iter__")
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}()"
+
+
+def _variadic_index(index: int):
+    return property(operator.itemgetter(index))
