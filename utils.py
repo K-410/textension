@@ -82,49 +82,30 @@ def map_contains(sequence1, sequence2):
     return partial(map, operator.contains)
 
 
-@inline
-def lazy_overwrite(method) -> property:
+def lazy_overwrite(func) -> property:
     class lazy_overwrite:
-        __slots__ = ("func", "name")
-        def __init__(self, func):
-            self.func = func
-            self.name = func.__name__
-
-        def __get__(self, obj, objclass):
-            ret = obj.__dict__[self.name] = self.func(obj)
-            return ret
-    return lazy_overwrite
+        __slots__ = ()
+        def __get__(_, instance, objclass=None):
+            return instance.__dict__.setdefault(func.__name__, func(instance))
+    return lazy_overwrite()
 
 
-@inline
-def lazy_class_overwrite(method) -> property:
+def lazy_class_overwrite(func) -> property:
     class lazy_overwrite:
-        __slots__ = ("func", "name")
-        def __init__(self, func):
-            self.name = func.__name__
-            self.func = func
-
-        def __get__(self, obj_unused, objclass):
-            setattr(objclass, self.name, ret := self.func(objclass))
+        def __get__(self, instance_unused, objclass):
+            setattr(objclass, func.__name__, ret := func(objclass))
             return ret
-    return lazy_overwrite
-
-
-def lazy_forwarder(attr, path):
-    from operator import attrgetter
-    getter = attrgetter(path)
-    @inline
-    class lazy_overwrite:
-        def __get__(self, obj, objclass):
-            ret = obj.tree_name.value
-            obj.string_name = ret
-            return ret
-            ret = obj.__dict__[attr] = getter(obj)
-            return ret
-    return lazy_overwrite
+    return lazy_overwrite()
 
 
 def soft_property(custom_getter) -> property:
+    """Usage:
+
+    >>> @soft_property
+    >>> def value(prop, instance, objclass=None):
+    >>>     instance.value = expensive_computation()
+    >>>     return instance.value
+    """
     @inline
     class _soft_property:
         __slots__ = ()
