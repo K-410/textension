@@ -1,3 +1,5 @@
+"""This module implements Textension preferences."""
+
 import bpy
 from . import utils
 from _bpy import context as _context

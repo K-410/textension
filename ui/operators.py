@@ -1,4 +1,4 @@
-# This module implements widget operators.
+"""This module implements widget operators."""
 
 from textension.utils import TextOperator, _system, safe_redraw, km_def, defer, is_spacetext, inline, set_name
 from textension.core import find_word_boundary

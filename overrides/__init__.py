@@ -1,4 +1,4 @@
-# This package implements overrides for internal operators.
+"""This package implements overrides for internal operators."""
 
 from textension.utils import _context, CFuncPtr, defer, namespace, close_cells, set_name, classproperty, filtertrue
 from textension import btypes

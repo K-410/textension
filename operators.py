@@ -1,4 +1,4 @@
-# This module implements various operators.
+"""This module implements various operators."""
 
 from .utils import TextOperator, km_def, _call, _system, _context, text_poll
 from .core import iter_brackets, find_word_boundary

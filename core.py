@@ -1,3 +1,5 @@
+"""This module implements core functions for Textension operators."""
+
 from .utils import _system, _call, _context, inline
 
 from types import ModuleType

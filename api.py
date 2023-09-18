@@ -1,4 +1,4 @@
-# This module implements api extensions.
+"""This module implements api extensions for Textension"""
 
 
 from ctypes import Structure, Array, c_int, c_short, c_bool, c_char, \

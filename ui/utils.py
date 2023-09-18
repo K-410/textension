@@ -1,4 +1,4 @@
-"""Utilities for custom ui like drawing and hit testing."""
+"""This module implements utilities for custom ui."""
 
 from textension.utils import _context, noop, CFuncPtr, namespace, _check_type, defaultdict_list, consume
 from textension.btypes import get_area_region_type, cast

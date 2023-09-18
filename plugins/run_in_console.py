@@ -1,3 +1,5 @@
+"""This module implements script outputs in the interactive console."""
+
 from console_python import get_console
 from textension import utils
 from io import StringIO

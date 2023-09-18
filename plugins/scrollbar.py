@@ -1,4 +1,4 @@
-# This plugin implements new scrollbar for the text editor.
+"""This module implements new scrollbar for the text editor."""
 
 from textension.ui.widgets import Scrollbar, Thumb, TextDraw, Widget
 from textension.utils import _context, _system, make_space_data_instancer, _forwarder, noop, inline

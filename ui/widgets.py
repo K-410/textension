@@ -1,4 +1,4 @@
-# This module implements widgets.
+"""This module implements widgets."""
 
 from textension.utils import _check_type, _forwarder, _system, _context, \
     safe_redraw, close_cells, inline, set_name, \

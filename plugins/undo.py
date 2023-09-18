@@ -1,8 +1,10 @@
-# This plugin implements an experimental undo stack for texts.
-# This affects the operators:
-# - ED_OT_undo:         Resync when undoing (ctrl z)
-# - ED_OT_redo:         Resync when redoing (ctrl shift z)
-# - ED_OT_undo_history: Resync when undoing a specific undo step.
+"""This module implements an experimental undo stack for texts.
+
+This affects the operators:
+- ED_OT_undo:         Resync when undoing (ctrl z)
+- ED_OT_redo:         Resync when redoing (ctrl shift z)
+- ED_OT_undo_history: Resync when undoing a specific undo step.
+"""
 
 from textension.utils import LinearStack, Adapter, TextOperator, text_from_id, iter_spaces, consume, map_not, filtertrue
 from textension.overrides import override, restore_capsules, _get_wmOperatorType

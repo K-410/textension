@@ -1,4 +1,4 @@
-# This module implements classes for custom drawing.
+"""This module implements classes for custom drawing."""
 
 from gpu.state import viewport_get, viewport_set, blend_set
 from gpu.types import GPUFrameBuffer, GPUTexture

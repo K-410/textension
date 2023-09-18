@@ -1,4 +1,4 @@
-# This module implements default text operator overrides.
+"""This module implements default text operator overrides."""
 
 from textension.btypes.defs import OPERATOR_CANCELLED, OPERATOR_FINISHED, OPERATOR_PASS_THROUGH, OPERATOR_RUNNING_MODAL
 from textension.btypes import wmWindowManager, event_type_to_string

@@ -1,3 +1,5 @@
+"""This module implements a faster SequenceMatcher."""
+
 from textension.utils import Aggregation, _named_index
 from collections import defaultdict
 from itertools import compress

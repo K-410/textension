@@ -1,4 +1,4 @@
-
+"""This module implements a search widget for the text editor."""
 
 from textension.ui.widgets import Input, Widget
 from textension.ui.utils import set_widget_focus, _visible

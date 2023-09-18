@@ -1,3 +1,5 @@
+"""This module implements highlights in the text editor."""
+
 import bpy
 import gpu
 from textension.utils import _context, _system, map_contains, namespace

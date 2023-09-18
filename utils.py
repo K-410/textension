@@ -1,5 +1,7 @@
-# NOTE: This module must be importable by any submodule.
-# NOTE: Do not import stuff from this package at module level.
+"""This module implements utilities for Textension.
+NOTE: This module must be importable by any submodule.
+NOTE: Do not import stuff from this package at module level.
+"""
 
 import functools
 import operator
