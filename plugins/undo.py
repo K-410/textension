@@ -16,7 +16,7 @@ from textension import utils
 
 from functools import partial
 from itertools import compress
-from operator import attrgetter, methodcaller, not_
+from operator import attrgetter, methodcaller
 from typing import Callable
 
 import bpy
