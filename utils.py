@@ -254,7 +254,7 @@ def classproperty(func):
     return classmethod(property(func))
 
 
-def instanced_default_cache(default_func):
+def instanced_default_cache(default_func) -> dict:
     _check_type(default_func, FunctionType)
     argcount = default_func.__code__.co_argcount
     assert argcount == 2, f"Expected a function taking 2 arguments, not {argcount}."
@@ -271,11 +271,6 @@ def starchain(it):
 @inline
 def dict_items(d: dict):
     return dict.items
-
-
-def factory(func):
-    args = (None,) * func.__code__.co_argcount
-    return func(*args)
 
 
 def _descriptor(func, setter=None):
@@ -308,7 +303,7 @@ def _unbound_attrcaller(name: str):
     return property(_unbound_getter(name))
 
 
-@factory
+@inline
 def _unbound_method(func: Callable):
     return PyInstanceMethod_New
 
@@ -624,7 +619,7 @@ def region_from_space_data(st, region_type='WINDOW') -> bpy.types.Region:
                     return region
 
 
-@factory
+@inline
 def redraw_text():
     from .btypes import ARegion, bContext, byref, get_area_region_type
 

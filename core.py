@@ -1,4 +1,4 @@
-from .utils import _system, _call, _context, factory
+from .utils import _system, _call, _context, inline
 
 from types import ModuleType
 import ctypes
@@ -7,7 +7,7 @@ import sys
 import re
 
 
-@factory
+@inline
 def iter_brackets():
 
     # Anything not related to strings, brackets or comments.
@@ -104,8 +104,6 @@ def iter_brackets():
                     break  # Rest is comments.
                 pos += 1
 
-        if stack:
-            pass
     def wrapper(text: str, strict=True):
         try:
             yield from iter_brackets(text, strict=strict)
@@ -196,7 +194,6 @@ def ensure_cursor_view(action: str = "lazy", smooth=True, threshold=2, speed=1.0
         return
 
     if smooth:
-        # print("lines", lines)
         bpy.ops.textension.scroll_lines('INVOKE_DEFAULT', lines=lines, speed=speed)
     else:
         st.top += lines
@@ -235,20 +232,6 @@ def test_line_numbers(x, y):
     #             from .ui import _hit_test_widget
     #             _hit_test_widget.on_activate = click_line_numbers
     #             return _hit_test_widget
-
-
-# Resizing a view with word wrapping can cause the text body to disappear
-# upwards. This callback clamps the view.
-def _clamp_viewrange(context=_context):
-    st = context.space_data
-    dna = st.internal
-    max_top = max(0, st.drawcache.total_lines - (dna.runtime.viewlines // 2))
-    if dna.top > max_top:
-        dna.top = max_top
-
-        # Call the text draw function to redraw immediately.
-        from .utils import redraw_text
-        redraw_text()
 
 
 def get_line_number_from_cursor():

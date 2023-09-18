@@ -1,6 +1,6 @@
 # This module implements various operators.
 
-from .utils import TextOperator, km_def, _call, _system, _context, namespace, factory, text_poll
+from .utils import TextOperator, km_def, _call, _system, _context, text_poll
 from .core import iter_brackets, find_word_boundary
 from .ui import get_mouse_region
 from time import perf_counter

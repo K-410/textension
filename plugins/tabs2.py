@@ -117,7 +117,7 @@ class Tab:
     def on_deactivate(self):
         self.color_base = self.color_default
 
-@utils.factory
+@utils.inline
 def get_instance():
     cache = {}
 

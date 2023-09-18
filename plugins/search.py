@@ -1,9 +1,9 @@
 
 
 from textension.ui.widgets import Input, Widget
-from textension.utils import _context, factory, km_def, TextOperator
-from textension import utils
 from textension.ui.utils import set_widget_focus, _visible
+from textension.utils import _context, TextOperator
+from textension import utils
 
 
 class Search(Widget):
@@ -56,7 +56,7 @@ def draw_search():
         search.draw()
 
 
-@factory
+@utils.inline
 def get_search() -> Search:
     return utils.make_space_data_instancer(Search)
 
@@ -69,7 +69,7 @@ def test_search(x, y):
 
 class TEXTENSION_OT_search(TextOperator):
     poll = utils.text_poll
-    km_def("Text Generic", 'F', 'PRESS', ctrl=True)
+    utils.km_def("Text Generic", 'F', 'PRESS', ctrl=True)
 
     def invoke(self, context, event):
         search = get_search()
