@@ -14,18 +14,41 @@ def init():
 
 
 def cleanup():
-    prefs = get_prefs()
-    for plugin in prefs.plugins:
+    for plugin in get_plugins():
         if plugin.enabled:
             plugin.module.disable()
 
     utils.unregister_classes(classes)
 
 
+# Use this module to access addon preferences' properties directly.
+@utils.inline
+def __getattr__(name: str):
+    @utils.inline
+    def resolve_path(path):
+        return _context.preferences.path_resolve
+
+    def __getattr__(name):
+        try:
+            return resolve_path(f'addons["textension"].preferences.{name}')
+        except:
+            raise AttributeError
+    return __getattr__
+
+
+@utils.inline
+def get_prefs():
+    return utils.partial(getattr, utils.this_module(), "")
+
+
+@utils.inline
+def get_plugins():
+    return utils.partial(getattr, utils.this_module(), "plugins")
+
+
 def _init_plugins():
-    prefs = get_prefs()
-    plugins = prefs.plugins
-    plugins_dict = get_plugins()
+    plugins = get_plugins()
+    plugins_dict = get_plugins_dict()
 
     # If a previously found plugin no longer exists, remove its entry.
     for index, plugin in reversed(list(enumerate(plugins))):
@@ -47,10 +70,6 @@ def _init_plugins():
         plugins.move(plugins.find(name), index)
 
 
-def get_prefs():
-    return _context.preferences.addons["textension"].preferences
-
-
 def resolve_prefs_path(path, coerce=True):
     from operator import attrgetter
 
@@ -63,7 +82,7 @@ def resolve_prefs_path(path, coerce=True):
     return (obj, attr)
 
 
-def get_plugins() -> dict:
+def get_plugins_dict() -> dict:
     """Return a list of plugin submodules that can be enabled."""
     import textension
     import pkgutil
@@ -88,9 +107,8 @@ def add_settings(cls) -> bpy.types.PropertyGroup:
     """
     assert "_PG_" in cls.__name__, f"Expected _PG_ in {cls}"
     name = cls.__name__.split("_PG_")[-1]
-    prefs = get_prefs()
-    setattr(type(prefs), name, bpy.props.PointerProperty(type=cls))
-    return getattr(prefs, name)
+    setattr(Preferences, name, bpy.props.PointerProperty(type=cls))
+    return getattr(utils.this_module(), name)
 
 
 def remove_settings(cls):
@@ -105,7 +123,7 @@ def remove_settings(cls):
 def enum_plugin_settings(self, context, *, data=[]):
     if not data:
         data += ("general", "", ""),
-        for plugin in get_prefs().plugins:
+        for plugin in get_plugins():
             data += (plugin.name, "", ""),
     return data
 
