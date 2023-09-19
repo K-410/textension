@@ -230,6 +230,17 @@ class Preferences(bpy.types.AddonPreferences, bpy.types.PropertyGroup):
 
     plugins: bpy.props.CollectionProperty(type=Plugin)
 
+    use_alt_scroll_multiplier: bpy.props.BoolProperty(
+        description="Hold Alt to scroll faster",
+        default=True,
+    )
+    num_scroll_lines: bpy.props.IntProperty(
+        description="Number of lines to scroll",
+        default=3,
+        min=1,
+        max=100,
+    )
+
     def draw(self, context):
         layout = self.layout
         layout = layout.row()
@@ -310,7 +321,8 @@ class Preferences(bpy.types.AddonPreferences, bpy.types.PropertyGroup):
 
     @staticmethod
     def draw_general(self, context, layout):
-        layout.label(text="General settings here")
+        layout.prop(self, "use_alt_scroll_multiplier", text="Alt Wheel Scroll Multiplier")
+        layout.prop(self, "num_scroll_lines", text="Lines to Scroll")
 
 
 def get_ui_scale(context, region_width):

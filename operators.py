@@ -6,6 +6,7 @@ from .ui import get_mouse_region
 from time import perf_counter
 from .btypes.defs import ST_SCROLL_SELECT
 from . import utils
+from . import prefs
 
 import bpy
 
@@ -302,15 +303,36 @@ class ScrollAccumulator:
 
 
 class TEXTENSION_OT_scroll_lines(TextOperator):
-    lines: bpy.props.FloatProperty()
-    speed: bpy.props.FloatProperty(default=1.0, min=0.1)
+    km_def("Text", 'WHEELUPMOUSE', 'PRESS', alt=True)
+    km_def("Text", 'WHEELDOWNMOUSE', 'PRESS', alt=True)
+
     bl_options = {'INTERNAL'}
     poll = text_poll
+
+    lines: bpy.props.FloatProperty()
+    speed: bpy.props.FloatProperty(default=1.0, min=0.1)
+
     def invoke(self, context, event):
-        if self.lines == 0:
-            return {'CANCELLED'}
+        lines = self.lines
+
+        if lines == 0:
+            lines = prefs.num_scroll_lines
+
+            if event.type == 'WHEELUPMOUSE':
+                lines *= -1
+
+            # We have no idea which direction to scroll.
+            elif event.type != 'WHEELDOWNMOUSE':
+                return {'CANCELLED'}
+
+        if event.alt and prefs.use_alt_scroll_multiplier:
+            lines *= 3
+
+        self.lines = lines
         self.accum = ScrollAccumulator(self, context.space_data, self.lines)
+
         SCROLL_TIME = 0.1 / self.speed
+
         self.finished = False
         self.coeff = 1.0 / SCROLL_TIME
         self.start = perf_counter()
