@@ -391,7 +391,19 @@ def unregister_classes(classes):
     consume(map(unregister_class, reversed(classes)))
 
 
-def km_def(km: str, km_type: str, km_value: str, **kw):
+def km_def(km: str, type: str, value: str, **kw):
+    """Define a keymap entry.
+
+    ``km``    "Text", "Text Generic", etc.\n
+    ``type``  'LEFTMOUSE', 'A', 'WHEELUPMOUSE', etc.\n
+    ``value`` 'PRESS', 'RELEASE', 'CLICK', etc.\n
+\n
+    ``**kw``  Additional keywords [ctrl | alt | shift | repeat | head].
+              Operator properties can also be passed here.
+
+              Example:
+              ctrl=True, alt=True, operator_string_prop="my_string"
+    """
     # This assumes km_def is called from the class' suite.
     km_meta = _getframe(1).f_locals.setdefault("__km__", [])
 
@@ -400,7 +412,7 @@ def km_def(km: str, km_type: str, km_value: str, **kw):
     for key in ("ctrl", "alt", "shift", "repeat", "head"):
         kmi_new_kw[key] = kw.pop(key, False)
 
-    km_meta += (km, km_type, km_value, kmi_new_kw, kw),
+    km_meta += (km, type, value, kmi_new_kw, kw),
 
 
 # Not sure how to get this via RNA.
@@ -571,6 +583,12 @@ def iter_spaces(space_type='TEXT_EDITOR'):
 
 def redraw_editors(area='TEXT_EDITOR', region_type='WINDOW'):
     consume(map(tag_redraw, iter_regions(area, region_type)))
+
+
+def this_module() -> types.ModuleType:
+    """Returns the module of the caller."""
+    import sys
+    return sys.modules.get(sys._getframe(1).f_globals["__name__"])
 
 
 get_id = attrgetter("id")
