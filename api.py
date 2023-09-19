@@ -270,8 +270,8 @@ def _clamp_line_column(text, line, column) -> tuple[int, int]:
     try:
         assert column <= len(text.lines[line].body)
     except (AssertionError, IndexError):
-        line = len(text.lines) if line > 0 else 0
-        column = len(text.lines[line].body)
+        line = min(len(text.lines) - 1, max(line, 0))
+        column = min(len(text.lines[line].body), max(column, 0))
 
     return line, column
 
