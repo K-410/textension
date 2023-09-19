@@ -492,27 +492,6 @@ def test_vanilla_scrollbar(x, y):
             return _hit_test_widget
 
 
-def scroll_to_cursor(action: str = "lazy"):
-    st = _context.space_data
-    region = _context.region
-    rh = region.height
-    line, column = st.text.cursor_focus
-    y = st.region_location_from_cursor(line, column)[1]
-    y += 4  # some weird pixel offset
-    lh_px = st.runtime.lheight_px
-    y += lh_px
-    view_lines_f = rh / st.runtime.lheight_px
-
-    middle = int(view_lines_f * 0.5)
-    # top = st.top
-    rel_lines = round(view_lines_f - (y / lh_px))
-
-    if rel_lines < 0 or rel_lines >= int(view_lines_f):
-        bpy.ops.textension.scroll_lines('INVOKE_DEFAULT', lines=rel_lines - middle, exclusive=True)
-
-    # st.top += rel_lines
-
-
 # def cursor_history_add(context, *args, **kwargs):
 #     textman(context.edit_text).cursor.add(*args, **kwargs)
 
@@ -710,11 +689,6 @@ def window_from_region(region: bpy.types.Region):
     for win in _context.window_manager.windows:
         if win.screen == region.id_data:
             return win
-
-
-def this_module() -> ModuleType:
-    """Returns the module of the caller."""
-    return sys.modules.get(sys._getframe(1).f_globals["__name__"])
 
 
 def clamp(val, a, b):
