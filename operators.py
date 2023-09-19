@@ -159,6 +159,7 @@ class TEXTENSION_OT_snap_select(TextOperator):
 class TEXTENSION_OT_line_select(TextOperator):
     bl_options = {'INTERNAL'}
     poll = text_poll
+
     def invoke(self, context, event):
         cursor = context.edit_text.cursor
         self.start_line = cursor.focus_line
@@ -169,19 +170,29 @@ class TEXTENSION_OT_line_select(TextOperator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        if event.type in {'LEFTMOUSE', 'RIGHTMOUSE', 'ESC'}:
+        if event.type in {'LEFTMOUSE', 'RIGHTMOUSE', 'ESC', 'WINDOW_DEACTIVATE'}:
             context.window_manager.event_timer_remove(self.timer)
             return {'CANCELLED'}
+
         elif event.type in {'MOUSEMOVE', 'TIMER'}:
             x, y = get_mouse_region()
             offset = context.space_data.runtime.scroll_ofs_px[1]
 
             _call("TEXT_OT_cursor_set", {}, {"x": x, "y": y - offset}, 'EXEC_DEFAULT')
 
-            cursor = context.edit_text.cursor
+            text = context.edit_text
+
+            cursor = text.cursor
             if cursor.focus_line >= self.start_line:
+                column = 0
+
+                # Focus is on the last line, so select the body since we can't
+                # actually select anything lower.
+                if text.select_end_line == text.lines[-1]:
+                    column = len(text.select_end_line.body)
+
                 cursor.anchor = self.start_line, 0
-                cursor.focus = cursor.focus_line + 1, 0
+                cursor.focus = cursor.focus_line + 1, column
 
             else:
                 cursor.anchor = self.start_line + 1, 0
