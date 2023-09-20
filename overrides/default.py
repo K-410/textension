@@ -615,10 +615,10 @@ class TEXT_OT_line_break(Default):
     def apply_override(cls):
         super().apply_override()
         cls.keymaps = [
-            add_keymap("Text", "text.line_break", 'RET', 'PRESS', ctrl=True),
-            add_keymap("Text", "text.line_break", 'RET', 'PRESS', shift=True),
-            add_keymap("Text", "text.line_break", 'NUMPAD_ENTER', 'PRESS', ctrl=True),
-            add_keymap("Text", "text.line_break", 'NUMPAD_ENTER', 'PRESS', shift=True),
+            add_keymap("Text", "text.line_break", 'RET', 'PRESS', ctrl=True, repeat=True),
+            add_keymap("Text", "text.line_break", 'RET', 'PRESS', shift=True, repeat=True),
+            add_keymap("Text", "text.line_break", 'NUMPAD_ENTER', 'PRESS', ctrl=True, repeat=True),
+            add_keymap("Text", "text.line_break", 'NUMPAD_ENTER', 'PRESS', shift=True, repeat=True),
         ]
 
     @classmethod
