@@ -267,66 +267,78 @@ class TEXT_OT_delete(Default):
 
         text = _context.edit_text
         selected_text = text.selected_text
-        endline, endcol = line, col = text.cursor_start
+        endline, endcol = line, column = text.cursor_start
 
-        curl, curc, sell, selc = text.cursor
+        curl, curc, sell, selc = text.cursor2
         last_format = text.format_from_indices(curl, max(0, curc - 1), sell, selc)
 
         if selected_text:
-            cursor_post = (line, col)
-            cursor_sel = None
+            cursor_post = (line, column)
+            delete_to = ()
 
         else:
             body = text.current_line.body
-            if "PREVIOUS" in delete_type:
-                if line == col == 0:
+
+            if delete_type in {'PREVIOUS_WORD', 'PREVIOUS_CHARACTER'}:
+                # Nothing to delete.
+                if line == column == 0:
                     return OPERATOR_CANCELLED
+
                 endcol -= 1
-                wrap = col is 0
-                if "WORD" in delete_type:
-                    endcol = col - find_word_boundary(body[:col][::-1])
-                    wrap = col == endcol
+                wrap = column is 0
+
+                if delete_type == 'PREVIOUS_WORD':
+                    endcol = column - find_word_boundary(body[:column][::-1])
+                    wrap = column == endcol
 
                 else:
-                    # When the cursor is between empty bracket pairs, remove both
+                    # When the cursor is between empty bracket pairs, remove both.
                     pairs = dict(zip("([{\"\'", ")]}\"\'"))
-                    if pairs.get(body[col - 1: col]) == body[col: col + 1]:
-                        col += 1
+                    if pairs.get(body[column - 1: column]) == body[column: column + 1]:
+                        column += 1
 
                     # Deal with leading indentation (spaces only)
-                    ret = re.search(r"^([ \t]+)$", body[:col])
-                    if ret:
-                        spaces = len(ret.group())
+                    if match := re.search(r"^([ \t]+)$", body[:column]):
+                        spaces = len(match.group())
                         width = _context.space_data.tab_width
                         if spaces >= width and text.indentation == 'SPACES':
-                            endcol = col - ((spaces % width) or width)
+                            endcol = column - ((spaces % width) or width)
 
                 if wrap:
                     endline -= 1
                     endcol = len(text.lines[endline].body)
 
-            elif "NEXT" in delete_type:
-                is_eol = col == len(body)
-                if line == len(text.lines) - 1 and is_eol:
+            elif delete_type in {'NEXT_WORD', 'NEXT_CHARACTER'}:
+                is_end_column = column == len(body)
+                is_end_line   = line == len(text.lines) - 1
+
+                # Nothing to delete.
+                if is_end_line and is_end_column:
                     return OPERATOR_CANCELLED
 
-                col += 1
-                wrap = is_eol
-                if "WORD" in delete_type:
-                    col = endcol + find_word_boundary(body[endcol:])
-                    wrap = col == endcol
+                # Assume we're deleting a single character.
+                column_offset = 1
 
-                if wrap:
-                    line += 1
-                    col = 0
+                if delete_type == 'NEXT_WORD':
+                    trailing_content = body[endcol:]
+
+                    # Start deleting the next line's leading contents.
+                    if not is_end_line and not trailing_content.strip():
+                        trailing_content = text.lines[line + 1].body
+                        line += 1
+                        column = 0
+
+                    column_offset = find_word_boundary(trailing_content)
+
+                column += column_offset
 
             cursor_post = (endline, endcol)
-            cursor_sel = (line, col)
+            delete_to = (line, column)
 
         # cursor_post: Where the cursor is set after deleting
-        # cursor_sel:  What the cursor extends (selects) before deleting
-        if cursor_sel is not None:
-            text.cursor = (*cursor_sel, *cursor_post)
+        # cursor:      What the cursor extends (selects) before deleting
+        if delete_to:
+            text.cursor = (*delete_to, *cursor_post)
         text.write("")
         text.cursor = cursor_post
         
