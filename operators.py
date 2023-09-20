@@ -136,7 +136,7 @@ class TEXTENSION_OT_snap_select(TextOperator):
             if (curc < icurc and curl == icurl) or curl < icurl:
                 icurc, selc = iselc, curc
             text.select_set(icurl, icurc, sell, selc)
-        elif event.type in {'LEFTMOUSE', 'RIGHTMOUSE', 'ESC'}:
+        elif event.type in {'LEFTMOUSE', 'RIGHTMOUSE', 'ESC', 'WINDOW_DEACTIVATE'}:
             context.window_manager.event_timer_remove(self.timer)
             return {'CANCELLED'}
         return {'RUNNING_MODAL'}
