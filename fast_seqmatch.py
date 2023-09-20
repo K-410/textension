@@ -1,12 +1,22 @@
 """This module implements a faster SequenceMatcher."""
 
-from textension.utils import Aggregation, _named_index
-from collections import defaultdict
-from itertools import compress
+from textension.utils import defaultdict_list, consume, map_len
+from itertools import compress, repeat, count, islice
 from difflib import SequenceMatcher
+from textension import utils
 
 
-class FastSequenceMatcher(SequenceMatcher, Aggregation):
+# Does what ``[[] for _ in range(N)]`` does, just faster.
+infinite_lists = map(list.__new__, repeat(list))
+infinite_dicts = map(dict.__new__, repeat(dict))
+
+
+@utils.inline
+def map_append(lists, obj):
+    return utils.partial(map, list.append)
+
+
+class FastSequenceMatcher(utils.Variadic, SequenceMatcher):
     isjunk     = None
     opcodes    = None
     autojunk   = True
@@ -14,23 +24,20 @@ class FastSequenceMatcher(SequenceMatcher, Aggregation):
 
     matching_blocks = None
 
-    a = _named_index(0)
-    b = _named_index(1)
+    a = utils._variadic_index(0)
+    b = utils._variadic_index(1)
 
-    def __init__(self, _):
-        b = self.b
-        self.b2j = b2j = dict.fromkeys(b)
+    def __init__(self, a, b):
+        # Construct a dictionary of ``b`` with empty lists as values.
+        self.b2j = b2j = dict(zip(b, infinite_lists))
 
-        for key in b2j:
-            b2j[key] = []
-
-        for i, elt in enumerate(b):
-            b2j[elt] += i,
+        # Map the indices of each occurrence and add to the lists.
+        consume(map_append(map(b2j.__getitem__, b), count()))
 
         if (n := (len(b) // 100 + 1)) >= 3:
-            self.b2j = defaultdict(list, compress(b2j.items(), map(n.__gt__, map(len, b2j.values()))))
+            self.b2j = defaultdict_list(compress(b2j.items(), map(n.__gt__, map_len(b2j.values()))))
         else:
-            self.b2j = defaultdict(list, b2j)
+            self.b2j = defaultdict_list(b2j)
 
     def find_longest_match(self, alo=0, ahi=None, blo=0, bhi=None):
         a   = self.a
@@ -42,8 +49,8 @@ class FastSequenceMatcher(SequenceMatcher, Aggregation):
         bestsize = 0
 
         j2len = {}
-        for i, c in enumerate(a[alo:ahi], start=alo):
-            newj2len = {}
+        
+        for i, c, newj2len in zip(count(alo), islice(a, alo, ahi), infinite_dicts):
             if c in b2j:
                 for j in b2j[c]:
                     if j < blo:
@@ -60,14 +67,18 @@ class FastSequenceMatcher(SequenceMatcher, Aggregation):
                         bestsize = k
             j2len = newj2len
 
-        while besti > alo and bestj > blo and a[besti-1] == b[bestj-1]:
-            besti, bestj, bestsize = besti-1, bestj-1, bestsize+1
+        while besti > alo and bestj > blo and a[besti - 1] == b[bestj - 1]:
+            besti -= 1
+            bestj -= 1
+            bestsize += 1
 
         while besti + bestsize < ahi and bestj + bestsize < bhi and a[besti + bestsize] == b[bestj + bestsize]:
             bestsize += 1
 
         while besti > alo and bestj > blo and a[besti - 1] == b[bestj - 1]:
-            besti, bestj, bestsize = besti - 1, bestj - 1, bestsize + 1
+            besti -= 1
+            bestj -= 1
+            bestsize += 1
 
         while besti + bestsize < ahi and bestj + bestsize < bhi and a[besti + bestsize] == b[bestj + bestsize]:
             bestsize += 1
