@@ -5,6 +5,7 @@ from textension.btypes import wmWindowManager, event_type_to_string
 from textension.core import test_line_numbers, iter_brackets, ensure_cursor_view, copy_selection
 from textension.utils import _context, add_keymap, _call, cm, tag_text_dirty, unsuppress, classproperty, starchain, Aggregation, _named_index, _forwarder, _class_forwarder, filtertrue
 from textension.ui import get_mouse_region
+from textension import utils
 from textension.operators import find_word_boundary
 
 from functools import partial
@@ -233,28 +234,45 @@ class TEXT_OT_cut(Default):
         return OPERATOR_FINISHED
 
 
+@utils.inline
 def get_enum_type(override: Default, fallback=None):
-    from operator import attrgetter
+    from ..utils import as_int
 
-    names = ("shift", "ctrl", "alt", "oskey")
-    get_kmis = attrgetter("keymap_items")
-    get_modifiers = attrgetter(*names)
+    @utils.inline
+    def map_keymap_items(keymaps_sequence):
+        return utils.partial(map, utils.attrgetter("keymap_items"))
+    
+    @utils.inline
+    def get_modifiers(keymap_item):
+        return utils.attrgetter("shift", "ctrl", "alt", "oskey")
 
-    keymaps = _context.window_manager.keyconfigs.active.keymaps
-    kms = filtertrue(map(keymaps.get, ("Text", "Text Generic")))
+    @utils.inline
+    def map_bool(seq):
+        return utils.partial(map, bool)
+    
+    @utils.inline
+    def get_test_pair(kmi):
+        return utils.attrgetter("idname", "type", "active")
 
-    event = override.event
-    type = event_type_to_string(event.type)
-    modifier = int.from_bytes(event.modifier, "little")
-    modifiers = tuple(bool(modifier & (1 << b)) for b in (0, 1, 2, 3))
+    masks = *map(1 .__lshift__, range(4)),
 
-    idname = override.bl_idname
-    for kmi in starchain(map(get_kmis, kms)):
-        if kmi.idname == idname and kmi.type == type and kmi.active:
-            if kmi.any or get_modifiers(kmi) == modifiers:
-                return kmi.properties.type
+    def get_enum_type(override: Default, fallback=None):
+        keymaps = filtertrue(
+            map(_context.window_manager.keyconfigs.active.keymaps.get,
+            ("Text", "Text Generic")))
 
-    return fallback
+        event = override.event
+
+        modifiers = *map_bool(map(as_int(event.modifier).__and__, masks)),
+        test_pair = (override.bl_idname, event.type_string, True)
+
+        for kmi in starchain(map_keymap_items(keymaps)):
+            if get_test_pair(kmi) == test_pair:
+                if get_modifiers(kmi) == modifiers or kmi.any:
+                    return kmi.properties.type
+
+        return fallback
+    return get_enum_type
 
 
 class TEXT_OT_delete(Default):
