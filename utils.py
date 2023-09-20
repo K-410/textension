@@ -168,6 +168,10 @@ def obj_get(obj, name):
     return object.__getattribute__
 
 @inline
+def as_int(byte_string) -> int:
+    return partial(int.from_bytes, byteorder="little")
+
+@inline
 def get_text_line_sync_key(text):
     """Returns a tuple of TextLine/int of the cursor focus."""
     return attrgetter("select_end_line", "select_end_character")
@@ -252,7 +256,7 @@ def unsuppress(func, sentinel=object()):
     return wrapper
 
 
-def classproperty(func):
+def classproperty(func) -> property:
     return classmethod(property(func))
 
 

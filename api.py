@@ -65,6 +65,7 @@ def safe_write_id_proxy(self, value):
 @factory
 def _ensure_text_id():
     from operator import attrgetter
+    from .utils import as_int
 
     get_id_proxy = attrgetter("id_proxy")
     bit_length = int.bit_length
@@ -73,21 +74,17 @@ def _ensure_text_id():
         id = self.id_proxy
         try:
             assert bit_length(id) == 31
-        except (TypeError, AssertionError):  # Not an int or an ideal value.
 
+        except (TypeError, AssertionError):  # Not an int or an ideal value.
             if self in _safe_write_store:
                 id = _safe_write_store[self]
+
             else:
-                id = 0
                 used_ids = set(map(get_id_proxy, bpy.data.texts))
                 while bit_length(id) != 31 or id in used_ids:
-                    id = int.from_bytes(os.urandom(4), byteorder="little") & 0x7fffffff
-
-                assert id != 0
+                    id = as_int(os.urandom(4)) & 0x7fffffff
                 safe_write_id_proxy(self, id)
-
         return id
-
     return _ensure_text_id
 
 
@@ -203,7 +200,6 @@ class APIBase:
     """Base for all API extensions"""
 
     # StructBase sub-classes must be ready by now.
-    initialize()
     __slots__ = ()
     bl_type = None
 

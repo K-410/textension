@@ -18,7 +18,7 @@ if "bpy" in locals():
             del sys.modules[name]
 
 
-from . import api, core, overrides, prefs, ui, utils, operators
+from . import utils, api, core, overrides, prefs, ui, operators
 import bpy
 
 
