@@ -55,15 +55,9 @@ class OpOverride:
     real: CFuncPtr  # The real function pointer.
     args: tuple
 
-    # @classmethod
-    # @property
-    @classproperty
-    def is_operator(cls):
-        return "_OT_" in cls.__name__
-
     @classproperty
     def bl_idname(cls):
-        return cls.__name__.replace("_OT_", ".").lower()
+        raise AttributeError
 
     @property
     def context(self):
@@ -81,10 +75,12 @@ class OpOverride:
         return _context.window.event
 
     def __init_subclass__(cls):
+        name = cls.__name__
         # Skip non-operator subclasses.
-        if cls.is_operator:
-            _op_as_string(cls.__name__)
+        if "_OT_" in name:
+            _op_as_string(name)
             cls.overrides = []
+            cls.bl_idname = name.replace("_OT_", ".").lower()
 
     @classmethod
     def get_defined_methods(cls):
