@@ -43,6 +43,14 @@ def override(idname, method, fn):
     return (ot, method, real)
 
 
+def _safe_print_traceback():
+    try:
+        import traceback
+        traceback.print_exc()
+    except:
+        return None
+
+
 # OpOverride models bpy.types.Operator methods, but not the parameters.
 class OpOverride:
     overrides: list["OpOverride"]   # List of overridden methods.
@@ -110,6 +118,7 @@ class OpOverride:
                 try:
                     return call_method(instance)
                 except:
+                    _safe_print_traceback()
                     # We need to return even on exceptions.
                     return btypes.defs.OPERATOR_CANCELLED
 
