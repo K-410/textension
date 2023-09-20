@@ -84,6 +84,16 @@ def map_contains(sequence1, sequence2):
     return partial(map, operator.contains)
 
 
+@inline
+def map_ne(seq1, seq2):
+    return partial(map, operator.ne)
+
+
+@inline
+def map_len(seq):
+    return partial(map, len)
+
+
 def lazy_overwrite(func) -> property:
     class lazy_overwrite:
         __slots__ = ()
