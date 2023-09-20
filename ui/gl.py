@@ -360,7 +360,7 @@ class Texture:
         self.batch.draw()
         viewport_set(*viewport)
 
-    @cm
+    @cm.decorate
     def bind(self):
         viewport = viewport_get()
 

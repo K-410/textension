@@ -718,7 +718,7 @@ def move_toggle(select: bool):
     text.cursor_set(line, character=column, select=select)
 
 
-@cm
+@cm.decorate
 def restore_view():
     dna = _context.space_data.internal
     top = dna.top
@@ -727,7 +727,7 @@ def restore_view():
     dna.top = top
 
 
-@cm
+@cm.decorate
 def restore_offset():
     offsets = _context.space_data.runtime.scroll_ofs_px
     offset = offsets[1]
@@ -943,7 +943,7 @@ def dispatch_hooks_safe(hooks):
         pass
 
 
-@cm
+@cm.decorate
 @unsuppress
 def run_sync_hooks(instance: "UndoOverride"):
     # Print any tracebacks, but don't halt execution.

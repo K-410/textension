@@ -682,26 +682,6 @@ def tag_text_dirty(text: bpy.types.Text):
         internal.compiled = 0
 
 
-# A context manager decorator with less overhead.
-class cm:
-    __slots__ = ("iterator", "result")
-    __enter__ = object.__init_subclass__
-
-    def __new__(cls, func):
-        self = super().__new__(cls)
-        def wrapper(*args):
-            self.iterator = func(*args)
-            self.result   = next(self.iterator)
-            return self
-        return wrapper
-
-    def __exit__(self, *_):
-        try:
-            next(self.iterator)
-        except:
-            pass
-
-
 # KeyMap.name: (space_type, region_type)
 default_keymap_data = {
     "Text":         ('TEXT_EDITOR', 'WINDOW'),
@@ -1008,3 +988,22 @@ class Variadic(MemoryError):
 
 def _variadic_index(index: int):
     return property(operator.itemgetter(index))
+
+
+# A context manager decorator with less overhead.
+class cm(Variadic):
+    __enter__ = object.__init_subclass__
+    __next__  = _forwarder("_iterator.__next__")
+
+    _iterator = _variadic_index(0)
+    result    = _variadic_index(1)
+
+    def __exit__(self, *_):
+        return next(self, None)
+
+    @staticmethod
+    def decorate(func):
+        def decorator(*args):
+            iterator = func(*args)
+            return cm(iterator, next(iterator))
+        return decorator
