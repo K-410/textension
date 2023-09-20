@@ -492,7 +492,7 @@ block_start = re.compile(
     r"|while|try|except|finally|match|case)\b.*?\:")
 
 block_end = re.compile(
-    r"^[ \t]*?\b(?:pass|break|continue|raise|return)\b")
+    r"^(?:.*?:?\s*?)(pass|break|continue|raise|return)\b")
 
 
 def calc_next_indent(st):
@@ -509,20 +509,15 @@ def calc_next_indent(st):
         if not leading_init.strip():
             return leading_init
 
-    # Skip lines upwards that start with a comment.
-    while line >= 0:
-        line_obj = text.lines[line]
-        if line_obj.body.strip() and line_obj.format[0:1] != b"#":
-            column = len(line_obj.body)
-            break
-        line -= 1
-
     leading = line_obj.body[:column]
     level = len(leading) - len(leading.lstrip())
+
     # Deduce the next indent based on the line contents.
-    if block_start.match(leading):
+    if leading_match := block_start.match(leading):
         level += units
-    elif block_end.match(leading):
+        leading = leading[leading_match.end():]
+
+    if block_end.match(leading):
         level -= units
 
     return indent * level
