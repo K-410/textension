@@ -15,6 +15,7 @@ except:
     from typing import Any as CFuncPtr
 
 from _bpy import context as _context
+from _bpy import data as _data
 from bpy.utils import register_class, unregister_class
 from typing import Callable
 from types import CellType, FunctionType
@@ -75,23 +76,28 @@ def inline_class(*args, star=True):
 
 
 @inline
+def partial_map(*args):
+    return partial(partial, map)
+
+
+@inline
 def map_not(iterable) -> map:
-    return partial(map, operator.not_)
+    return partial_map(operator.not_)
 
 
 @inline
-def map_contains(sequence1, sequence2):
-    return partial(map, operator.contains)
+def map_contains(a, b):
+    return partial_map(operator.contains)
 
 
 @inline
-def map_ne(seq1, seq2):
-    return partial(map, operator.ne)
+def map_ne(a, b):
+    return partial_map(operator.ne)
 
 
 @inline
 def map_len(seq):
-    return partial(map, len)
+    return partial_map(len)
 
 
 def lazy_overwrite(func) -> property:
@@ -952,7 +958,7 @@ class _pydevd_repr_override_meta(type):
 
 @inline
 def _map_named_indices(iterables):
-    return partial(map, type(_named_index(0)).__instancecheck__)
+    return partial_map(type(_named_index(0)).__instancecheck__)
 
 
 # Base for aggregate initialization classes.
