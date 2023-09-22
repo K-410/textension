@@ -207,7 +207,7 @@ def pyop_wrapper(context, op=None, event=None, method=None) -> int:
         return defs.OPERATOR_CANCELLED
 
     if result == defs.OPERATOR_FINISHED:
-        stack.push_undo(tag=op.contents.idname.decode())
+        stack.push(tag=op.contents.idname.decode())
         # Prevent Blender from pushing its own undo.
         result = defs.OPERATOR_CANCELLED
     return result
@@ -315,7 +315,7 @@ def _apply_default_undo() -> None:
                 else:
                     # Operator finished, push a step, ignore native undo.
                     if result == defs.OPERATOR_FINISHED:
-                        stack.push_undo(tag=cls.__name__)
+                        stack.push(tag=cls.__name__)
                         result = defs.OPERATOR_CANCELLED
                 finally:
                     return result

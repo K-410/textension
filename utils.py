@@ -870,7 +870,7 @@ class LinearStack:
         self.last_push = 0.0
 
         # The initial state.
-        self.push_undo(tag="init")
+        self.push(tag="init")
 
     def __repr__(self):
         return f"<UndoStack ({self.adapter}) at 0x{id(self):0>16X}>"
@@ -910,7 +910,7 @@ class LinearStack:
         self.adapter.set_cursor(cursor)
         self.adapter.on_update(restore=True)
 
-    def push_undo(self, tag, *, can_group=True):
+    def push(self, tag, *, can_group=True):
         """If ``can_group`` is True, allow merging similar states."""
         if undo := self.undo:
             can_group &= tag == undo[-1].tag

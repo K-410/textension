@@ -741,7 +741,7 @@ def input_undo(input_method):
         result = input_method(self, *args, **kw)
 
         if result is not False:
-            self.state.push_undo(tag=input_method.__name__)
+            self.state.push(tag=input_method.__name__)
 
         # True because input methods block all other hooks.
         return True
