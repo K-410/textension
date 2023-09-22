@@ -53,8 +53,14 @@ class FastSequenceMatcher(utils.Variadic, SequenceMatcher):
             elif j < bj:
                 opcodes += ("insert",  i, ai, j, bj),
 
-            i = ai + size
-            j = bj + size
+            if not size:
+                i = ai
+                j = bj
+            else:
+                i = ai + size
+                j = bj + size
+                opcodes += ("equal", ai, i, bj, j),
+
         return opcodes
 
     def get_matching_blocks(self):
