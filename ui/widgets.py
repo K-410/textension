@@ -1,8 +1,8 @@
 """This module implements widgets."""
 
 from textension.utils import _check_type, _forwarder, _system, _context, \
-    safe_redraw, close_cells, inline, set_name, \
-    UndoStack, Adapter, soft_property, _named_index, defaultdict_list
+    safe_redraw, close_cells, inline, set_name, UndoStack, Adapter, \
+    soft_property, _named_index, defaultdict_list, Variadic, _variadic_index
 from textension.ui.utils import set_widget_focus, get_widget_focus
 from textension.ui.gl import Rect, Texture
 from textension.core import find_word_boundary
@@ -369,14 +369,10 @@ class Scrollbar(Widget):
         return None
 
 
-class TextLine:
-    __slots__ = ("string",)
+class TextLine(Variadic):
 
     # The string this line holds.
-    string: str
-
-    def __init__(self, string) -> None:
-        self.string = string
+    string: str = _variadic_index(0)
 
 
 class ListEntry(TextLine):
