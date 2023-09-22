@@ -18,7 +18,7 @@ import bpy
 _context = utils._context
 _data    = utils._data
 
-undo_stacks: dict[int, utils.LinearStack] = {}
+undo_stacks: dict[int, utils.UndoStack] = {}
 
 
 # Dict of python operators using the new undo system
@@ -112,7 +112,7 @@ class TextAdapter(utils.Adapter):
 
 # Dummy stack. Makes it easier to write generic code for undo/redo.
 @utils.inline_class(utils.Adapter())
-class NO_STACK(utils.LinearStack):
+class NO_STACK(utils.UndoStack):
     undo = ()
     redo = ()
 
@@ -123,16 +123,16 @@ class NO_STACK(utils.LinearStack):
         return utils.noop_noargs
 
 
-def get_undo_stack(text: bpy.types.Text) -> utils.LinearStack:
+def get_undo_stack(text: bpy.types.Text) -> utils.UndoStack:
     assert text.__class__ is bpy.types.Text
     try:
         return undo_stacks[text.id]
     except KeyError:
-        return undo_stacks.setdefault(text.id, utils.LinearStack(TextAdapter(text)))
+        return undo_stacks.setdefault(text.id, utils.UndoStack(TextAdapter(text)))
 
 
 @utils.inline
-def update_cursors(stacks: list[utils.LinearStack]):
+def update_cursors(stacks: list[utils.UndoStack]):
     return utils.methodcaller("update_cursor")
 
 @utils.inline
@@ -238,7 +238,7 @@ def pyop_disable_new_undo(cls) -> None:
         del _pyop_store[cls]
 
 
-def get_active_stack() -> utils.LinearStack:
+def get_active_stack() -> utils.UndoStack:
     if text := getattr(_context, "edit_text", None):
         return get_undo_stack(text)
     return NO_STACK

@@ -2,7 +2,7 @@
 
 from textension.utils import _check_type, _forwarder, _system, _context, \
     safe_redraw, close_cells, inline, set_name, \
-    LinearStack, Adapter, soft_property, _named_index, defaultdict_list
+    UndoStack, Adapter, soft_property, _named_index, defaultdict_list
 from textension.ui.utils import set_widget_focus, get_widget_focus
 from textension.ui.gl import Rect, Texture
 from textension.core import find_word_boundary
@@ -766,7 +766,7 @@ class Input(TextDraw):
     hint:       str
 
     _hooks_set: bool
-    state:      LinearStack
+    state:      UndoStack
 
     def __init__(self, parent):
         super().__init__(parent=parent)
@@ -787,7 +787,7 @@ class Input(TextDraw):
         self._hooks_set = False
         from textension.operators import clicks_counter
         self.clicks = clicks_counter()
-        self.state = LinearStack(InputAdapter(self))
+        self.state = UndoStack(InputAdapter(self))
 
     def remove_hooks(self):
         if self._hooks_set:

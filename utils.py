@@ -795,7 +795,7 @@ class TextOperator(bpy.types.Operator):
             keymaps.clear()
 
 
-# State-less interface for LinearStack.
+# State-less interface for UndoStack.
 class Adapter:
     def get_string(self) -> str:
         return ""
@@ -820,7 +820,7 @@ class Adapter:
     def on_update(self, restore=False):
         return noop
 
-    # If LinearStack.poll_undo/redo fails, we still want a way to eat the
+    # If UndoStack.poll_undo/redo fails, we still want a way to eat the
     # event. This is primarily for focused Widgets.
     @inline
     def poll_undo(self) -> bool:
@@ -836,9 +836,7 @@ class Adapter:
         return f"{type(self).__name__}"
 
 
-# TODO: Use unified diff instead of storing the whole text.
-class Step:
-    __slots__ = ("data", "cursor1", "cursor2", "tag")
+class UndoStack:
 
     data:    str
     cursor1: tuple[int]
@@ -875,7 +873,7 @@ class LinearStack:
         self.push_undo(tag="init")
 
     def __repr__(self):
-        return f"<LinearStack ({self.adapter}) at 0x{id(self):0>16X}>"
+        return f"<UndoStack ({self.adapter}) at 0x{id(self):0>16X}>"
 
     def pop_undo(self) -> bool:
         # We don't use ``self.poll_undo()`` here, because the stack can still
