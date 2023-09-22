@@ -797,8 +797,9 @@ class TextOperator(bpy.types.Operator):
 
 # State-less interface for UndoStack.
 class Adapter:
+    @inline
     def get_string(self) -> str:
-        return ""
+        return str
 
     @inline
     def set_string(self, string) -> None:
@@ -812,8 +813,9 @@ class Adapter:
     def set_cursor(self, cursor):
         return noop
 
+    @inline
     def get_should_split(self, hint: bool) -> bool:
-        return hint
+        return bool
 
     # Update hook on stack initialization and undo push.
     @inline
