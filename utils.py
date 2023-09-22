@@ -837,34 +837,21 @@ class Adapter:
 
 
 class UndoStack:
+    __slots__ = ("undo", "redo", "last_push", "adapter", "state")
 
-    data:    str
-    cursor1: tuple[int]
-    tag:     str
+    undo:  list["Step"]
+    redo:  list["Step"]
 
-    def __init__(self, adapter: Adapter, tag=""):
-        self.data    = adapter.get_string()
-        self.cursor1 = adapter.get_cursor()
-        self.cursor2 = None
-        self.tag     = tag
-
-    def __repr__(self):
-        return f"<Step tag={self.tag} at 0x{id(self):0>16X}>"
-
-
-class LinearStack:
-    __slots__ = ("undo", "redo", "last_push", "adapter")
-
-    undo: list[Step]
-    redo: list[Step]
+    state: list[str]
 
     def reset(self):
         """Reset stacks."""
         self.__init__(self.adapter)
 
     def __init__(self, adapter: Adapter):
-        self.undo = []
-        self.redo = []
+        self.undo  = []
+        self.redo  = []
+        self.state = []
 
         self.adapter   = adapter
         self.last_push = 0.0
@@ -879,7 +866,7 @@ class LinearStack:
         # We don't use ``self.poll_undo()`` here, because the stack can still
         # be empty and poll True. Widgets must consume the undo when in focus.
         if len(self.undo) > 1:
-            self.move_and_set(self.undo, self.redo)
+            self.step(reverse=True)
             return True
 
         # Returning False here means that, when this method is used as a hook
@@ -890,55 +877,120 @@ class LinearStack:
 
     def pop_redo(self) -> bool:
         if self.redo:
-            self.move_and_set(self.redo, self.undo)
+            self.step(reverse=False)
             return True
         return self.adapter.poll_redo()
 
-    def move_and_set(self, from_stack, to_stack):
-        to_stack += from_stack.pop(),
-        state  = self.undo[-1]
-        cursor = from_stack is self.undo and state.cursor2 or state.cursor1
-        self.set_state(state.data, cursor)
-
     def restore_last(self):
         if self.adapter.is_valid:
-            state = self.undo[-1]
-            self.set_state(state.data, state.cursor2 or state.cursor1)
+            self._apply(self.undo[-1].secondary_cursor, True)
 
-    def set_state(self, data, cursor):
-        self.adapter.set_string(data)
+    def step(self, reverse=False):
+        """Step the stack. When ``reverse`` is True, pop from undo stack."""
+
+        from_stack, to_stack = (self.undo, self.redo)[::reverse * 2 - 1]
+
+        step = from_stack.pop()
+        to_stack += step,
+
+        if reverse:
+            cursor = self.undo[-1].cursor[1]
+        else:
+            cursor = step.cursor[0]
+
+        lines = self.state
+        for data in step.data:
+            start, end, content = data[reverse]
+            lines[start:end] = content
+
+        self._apply(cursor, reverse)
+
+    def _apply(self, cursor, restore):
+        self.adapter.set_string("\n".join(self.state))
         self.adapter.set_cursor(cursor)
-        self.adapter.on_update(restore=True)
+        self.adapter.on_update(restore=restore)
 
     def push(self, tag, *, can_group=True):
         """If ``can_group`` is True, allow merging similar states."""
-        if undo := self.undo:
-            can_group &= tag == undo[-1].tag
 
-        now = monotonic()
-        adapter = self.adapter
-        state = Step(adapter, tag=tag)
+        if self.undo:
+            can_group &= tag == self.undo[-1].tag
 
-        if not can_group or now - self.last_push > 0.5 or \
-                adapter.get_should_split(can_group):
-            undo += state,
+        now  = monotonic()
+
+        if not can_group or now - self.last_push > 0.5 or self.adapter.get_should_split(can_group):
+            self.undo += Step(self, tag=tag),
         else:
-            undo[-1] = state
+            self.undo[-1].merge(self)
 
-        self.last_push = now
         self.redo.clear()
-        adapter.on_update()
+        self.last_push = now
+        self.adapter.on_update()
+
+        import sys
+        size = 0
+        for step in self.undo:
+            size += sys.getsizeof(step.data)
+
+        print("size:", size)
 
     def update_cursor(self):
         if self.undo:
-            self.undo[-1].cursor2 = self.adapter.get_cursor()
+            self.undo[-1].cursor[1] = self.adapter.get_cursor()
 
     def poll_undo(self) -> bool:
-        # The init step doesn't count towards undoable steps.
         return len(self.undo) > 1 or self.adapter.poll_undo()
 
     def poll_redo(self) -> bool:
         return bool(self.redo or self.adapter.poll_redo())
+
+
+# TODO: This should be part of UndoStack.
+class Step:
+    __slots__ = ("data", "cursor", "tag")
+
+    data:    str
+    cursor:  list[tuple[int]]
+    tag:     str
+
+    def merge(self, stack: UndoStack):
+        lines = stack.state
+
+        for data in self.data:
+            start, end, content = data[1]
+            lines[start:end] = content
+
+        self.__init__(stack, tag=self.tag)
+
+    def generate(self, lines: list[str], new_lines: list[str]):
+        from textension.fast_seqmatch import FastSequenceMatcher
+
+        data = []
+        opcodes = FastSequenceMatcher(lines, new_lines).get_opcodes()
+
+        for op, start, end, new_start, new_end in reversed(opcodes):
+            old = new = ()
+            if op != "delete":
+                new = new_lines[new_start:new_end]
+
+            if op != "insert":
+                old = lines[start:end]
+
+            lines[start:end] = new
+            data += ((start, end, new), (new_start, new_end, old)),
+        return data
+
+    def __init__(self, stack: UndoStack, tag=""):
+        # "foo\n".splitlines()  ->  ["foo"]
+        # "foo\n".split("\n")   ->  ["foo", ""]  (what we want)
+        new_lines = stack.adapter.get_string().split("\n")
+
+        self.tag = tag
+        self.data = self.generate(stack.state, new_lines)
+        self.cursor = list((stack.adapter.get_cursor(),) * 2)
+
+    def __repr__(self):
+        return f"<Step tag={self.tag} at 0x{id(self):0>16X}>"
 
 
 # pydevd substitutes tuple subclass instances' own __repr__ with a useless
