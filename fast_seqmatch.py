@@ -4,6 +4,7 @@ from textension.utils import defaultdict_list, consume, map_len
 from itertools import compress, repeat, count, islice
 from difflib import SequenceMatcher
 from textension import utils
+from functools import partial
 
 
 # Does what ``[[] for _ in range(N)]`` does, just faster.
@@ -39,48 +40,102 @@ class FastSequenceMatcher(utils.Variadic, SequenceMatcher):
         else:
             self.b2j = defaultdict_list(b2j)
 
-    def find_longest_match(self, alo=0, ahi=None, blo=0, bhi=None):
-        a   = self.a
-        b   = self.b
+    def get_opcodes(self):
+        i = 0
+        j = 0
+        opcodes = []
+
+        for ai, bj, size in self.get_matching_blocks():
+            if i < ai and j < bj:
+                opcodes += ("replace", i, ai, j, bj),
+            elif i < ai:
+                opcodes += ("delete",  i, ai, j, bj),
+            elif j < bj:
+                opcodes += ("insert",  i, ai, j, bj),
+
+            i = ai + size
+            j = bj + size
+        return opcodes
+
+    def get_matching_blocks(self):
+        a = self.a
+        b = self.b
+        la = len(a)
+        lb = len(b)
         b2j = self.b2j
 
-        besti    = alo
-        bestj    = blo
-        bestsize = 0
+        pool = [(0, la, 0, lb)]
+        matching_blocks = []
+        islice_a = partial(islice, a)
 
-        j2len = {}
-        
-        for i, c, newj2len in zip(count(alo), islice(a, alo, ahi), infinite_dicts):
-            if c in b2j:
-                for j in b2j[c]:
-                    if j < blo:
-                        continue
-                    elif j >= bhi:
-                        break
-                    if j - 1 in j2len:
-                        k = newj2len[j] = j2len[j - 1] + 1
-                    else:
-                        k = newj2len[j] = 1
-                    if k > bestsize:
-                        besti = i - k + 1
-                        bestj = j - k + 1
-                        bestsize = k
-            j2len = newj2len
+        for alo, ahi, blo, bhi in iter(pool):
 
-        while besti > alo and bestj > blo and a[besti - 1] == b[bestj - 1]:
-            besti -= 1
-            bestj -= 1
-            bestsize += 1
+            bi = alo
+            bj = blo
+            bs = 0
 
-        while besti + bestsize < ahi and bestj + bestsize < bhi and a[besti + bestsize] == b[bestj + bestsize]:
-            bestsize += 1
+            j2len = {}
+            
+            for i, c, newj2len in zip(count(alo), islice_a(alo, ahi), infinite_dicts):
+                if c in b2j:
+                    for j in b2j[c]:
+                        if j < blo:
+                            continue
+                        elif j >= bhi:
+                            break
+                        if j - 1 in j2len:
+                            k = newj2len[j] = j2len[j - 1] + 1
+                        else:
+                            k = newj2len[j] = 1
+                        if k > bs:
+                            bi = i - k + 1
+                            bj = j - k + 1
+                            bs = k
+                j2len = newj2len
 
-        while besti > alo and bestj > blo and a[besti - 1] == b[bestj - 1]:
-            besti -= 1
-            bestj -= 1
-            bestsize += 1
+            while bi > alo and bj > blo and a[bi - 1] == b[bj - 1]:
+                bi -= 1
+                bj -= 1
+                bs += 1
 
-        while besti + bestsize < ahi and bestj + bestsize < bhi and a[besti + bestsize] == b[bestj + bestsize]:
-            bestsize += 1
+            while bi + bs < ahi and bj + bs < bhi and a[bi + bs] == b[bj + bs]:
+                bs += 1
 
-        return besti, bestj, bestsize
+            while bi > alo and bj > blo and a[bi - 1] == b[bj - 1]:
+                bi -= 1
+                bj -= 1
+                bs += 1
+
+            while bi + bs < ahi and bj + bs < bhi and a[bi + bs] == b[bj + bs]:
+                bs += 1
+
+            if bs:
+                matching_blocks += (bi, bj, bs),
+
+                if alo < bi and blo < bj:
+                    pool += (alo, bi, blo, bj),
+
+                if bi + bs < ahi and bj + bs < bhi:
+                    pool += (bi + bs, ahi, bj + bs, bhi),
+
+        i1 = 0
+        j1 = 0
+        k1 = 0
+        non_adjacent = []
+
+        for i2, j2, k2 in sorted(matching_blocks):
+            if i1 + k1 == i2 and j1 + k1 == j2:
+                k1 += k2
+
+            else:
+                if k1:
+                    non_adjacent += (i1, j1, k1),
+
+                i1 = i2
+                j1 = j2
+                k1 = k2
+        if k1:
+            non_adjacent += (i1, j1, k1),
+
+        non_adjacent += (la, lb, 0),
+        return non_adjacent
