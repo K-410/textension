@@ -83,9 +83,8 @@ class TextAdapter(utils.Adapter):
     def get_string(self):
         return utils._forwarder("text.as_string")
 
-    @utils.inline
     def get_cursor(self):
-        return utils._forwarder("text.cursor.copy")
+        return self.text.cursor2
 
     def set_cursor(self, cursor):
         self.text.cursor = cursor
