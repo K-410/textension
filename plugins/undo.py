@@ -54,9 +54,8 @@ class TextAdapter(utils.Adapter):
 
     @property
     def text(self) -> bpy.types.Text:
-        texts = _data.texts
         try:
-            text = texts[self.name]
+            text = _data.texts[self.name]
             text_id = text.id
             assert text_id == self.id
 
@@ -67,7 +66,7 @@ class TextAdapter(utils.Adapter):
                 self.name = text.name
 
             # Find the text by its name.
-            elif text := texts.get(self.name):
+            elif text := _data.texts.get(self.name):
                 remap_id = text.id
                 assert remap_id not in undo_stacks
                 undo_stacks[remap_id] = undo_stacks.pop(self.id)
@@ -75,7 +74,7 @@ class TextAdapter(utils.Adapter):
 
             # Blender removed the text. Restore it.
             else:
-                text = texts.new(self.name)
+                text = _data.texts.new(self.name)
                 text.id_proxy = self.id
         return text
 
@@ -106,15 +105,14 @@ class TextAdapter(utils.Adapter):
 
     @property
     def is_valid(self):
+        # If a text for some reason can't be found or recovered, we find out
+        # here, so we don't try to write to something that doesn't exist.
         return bool(self.text)
 
 
 # Dummy stack. Makes it easier to write generic code for undo/redo.
 @utils.inline_class(utils.Adapter())
 class NO_STACK(utils.UndoStack):
-    undo = ()
-    redo = ()
-
     __bool__ = bool
 
     @utils.inline
