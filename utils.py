@@ -958,32 +958,13 @@ class Step:
         self.__init__(stack, tag=self.tag)
 
     def generate(self, lines: list[str], new_lines: list[str]):
-        from textension.fast_seqmatch import FastSequenceMatcher
-        from itertools import count
-
-        alen = len(lines)
-        blen = len(new_lines)
-        # Valid head (a and b are equal up to this).
-        head = next(compress(count(), map_ne(lines, new_lines)), blen - 1)
-
-        # Valid tail (a and b are equal from this to end).
-        tail = next(compress(count(), map_ne(reversed(lines), reversed(new_lines))), 0)
-
-        old_end = alen - tail
-        new_end = blen - tail
-        head = min(head, old_end, new_end)
-
-        opcodes = []
-
-        # Feed only changed lines, then add the offsets to the opcode indices.
-        add_offset = head.__add__
-        sm = FastSequenceMatcher(lines[head:old_end], new_lines[head:new_end])
-
-        for opcode, *indices in sm.get_opcodes():
-            opcodes += (opcode, *map(add_offset, indices)),
+        from textension.fast_seqmatch import unified_diff
 
         data = []
-        for op, start, end, new_start, new_end in reversed(opcodes):
+        for op, start, end, new_start, new_end in reversed(unified_diff(lines, new_lines)):
+            if op == "equal":
+                continue
+
             old = new = ()
             if op != "delete":
                 new = new_lines[new_start:new_end]

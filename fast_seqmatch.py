@@ -1,10 +1,11 @@
 """This module implements a faster SequenceMatcher."""
 
 from textension.utils import defaultdict_list, consume, map_len
-from itertools import compress, repeat, count, islice
-from difflib import SequenceMatcher
 from textension import utils
+from itertools import compress, repeat, count, islice
 from functools import partial
+from operator import add
+from difflib import SequenceMatcher
 
 
 # Does what ``[[] for _ in range(N)]`` does, just faster.
@@ -145,3 +146,64 @@ class FastSequenceMatcher(utils.Variadic, SequenceMatcher):
 
         non_adjacent += (la, lb, 0),
         return non_adjacent
+
+
+@utils.inline
+def unified_diff(a, b) -> list[tuple[str, int, int, int, int]]:
+    """Note: For performance, use this only if you know that `a` != `b`.
+    Note 2: Only strings, or list of strings supported.
+    """
+
+    from textension.utils import map_ne, filtertrue
+    from .fast_seqmatch import FastSequenceMatcher
+    from itertools import repeat
+    from operator import add, length_hint
+    from builtins import len, min, map, reversed
+
+    @utils.inline
+    def get_end_indices(opcode):
+        import operator
+        return operator.itemgetter(2, 4)
+
+    def unified_diff(a, b):
+        la = len(a)
+        lb = len(b)
+        tail = 0
+        head = lb
+        opcodes = []
+
+        # ``X in Iterable`` consumes the iterators until the first non-equal
+        # element is found. ``length_hint`` then gives us the remaining size
+        # of the iterator.
+        iter_a = iter(a)
+        if True in filtertrue(map_ne(iter_a, b)):
+            head = la - length_hint(iter_a) - 1
+
+        rev_a = reversed(a)
+        if True in filtertrue(map_ne(rev_a, reversed(b))):
+            tail = la - length_hint(rev_a) - 1
+
+        old_end = la - tail
+        new_end = lb - tail
+
+        # It's possible for tails to overlap the head. If so, we need to clamp.
+        # Consider "aaabc" vs "aaaabc".
+        head = min(head, old_end, new_end)
+
+        if head:
+            opcodes += ("equal", 0, head, 0, head),
+
+        # Feed only changed lines, then add the offsets to the opcode indices.
+        offsets = repeat(head)
+
+        # data[0]  opcode
+        # data[1:] indices
+        for data in FastSequenceMatcher(a[head:old_end], b[head:new_end]).get_opcodes():
+            opcodes += (data[0], *map(add, offsets, data[1:])),
+
+        if tail:
+            j1, j2 = get_end_indices(opcodes[-1])
+            opcodes += ("equal", j1, la, j2, lb),
+        return opcodes
+
+    return unified_diff
