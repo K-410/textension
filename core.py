@@ -165,25 +165,29 @@ def ensure_cursor_view(action: str = "lazy", smooth=True, threshold=2, speed=1.0
 
     line, column = text.cursor_focus
 
-    line_offset = st.runtime.scroll_ofs_px[1] / st.line_height
-    top = st.internal.top + line_offset
-    rel_bottom = st.visible_lines - threshold
+    view_lines  = st.visible_lines
+    line_height = st.line_height
+    top_int = st.internal.top
+    top = top_int + (st.runtime.scroll_ofs_px[1] / line_height)
 
     from .operators import ScrollAccumulator
     if st in ScrollAccumulator.pool:
         top = ScrollAccumulator.pool[st].target_top
 
-    y = st.region_location_from_cursor(0, 0)[1]
-    y -= st.region_location_from_cursor(line, column)[1]
-    cursor_line = (y // st.line_height)
+    height = _context.region.height
+    from_bottom = st.region_location_from_cursor(line, column)[1]
 
-    bottom = top + rel_bottom
+    # We could use another call to ``region_location_from_cursor``, but it's
+    # expensive with word wrap enabled, so estimate it.
+    cursor_line = int(top_int + ((height - from_bottom) / line_height) - 1)
 
     if action == "center":
         if line < top:
-            cursor_line -= (st.visible_lines // 2) - 2
+            cursor_line -= (view_lines // 2) - 2
         else:
-            cursor_line += (st.visible_lines // 2) - 2
+            cursor_line += (view_lines // 2) - 2
+
+    bottom = top + view_lines - threshold
 
     # Scroll up.
     if max(0, cursor_line - threshold) < top:
