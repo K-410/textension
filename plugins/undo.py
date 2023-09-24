@@ -130,7 +130,7 @@ def get_undo_stack(text: bpy.types.Text) -> utils.UndoStack:
 
 @utils.inline
 def update_cursors(stacks: list[utils.UndoStack]):
-    return utils.methodcaller("update_cursor")
+    return utils.operator.methodcaller("update_cursor")
 
 @utils.inline
 def map_synced_ids(ids):
