@@ -966,9 +966,6 @@ class Step:
     cursor:  list[tuple[int]]
     tag:     str
 
-    __getitem__ = _forwarder("data.__getitem__")
-    __iter__ = _forwarder("data.__iter__")
-
     def merge(self, stack: UndoStack):
         lines = stack.state
 
