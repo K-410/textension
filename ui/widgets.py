@@ -2,13 +2,14 @@
 
 from textension.utils import _check_type, _forwarder, _system, _context, \
     safe_redraw, close_cells, inline, set_name, UndoStack, Adapter, \
-    soft_property, _named_index, defaultdict_list, Variadic, _variadic_index
+    soft_property, _named_index, defaultdict_list, Variadic, _variadic_index, \
+    filtertrue, consume, map_not, classproperty
 from textension.ui.utils import set_widget_focus, get_widget_focus
 from textension.ui.gl import Rect, Texture
 from textension.core import find_word_boundary
 
 from functools import partial
-from itertools import islice
+from itertools import islice, compress
 from operator import methodcaller, itemgetter
 from typing import Optional, Union, TypeVar, Iterable, Type
 import weakref
@@ -130,14 +131,14 @@ class Widget:
 
     _instance_refs: dict["Widget", list["Widget"]] = defaultdict_list()
 
-    @classmethod
-    @property
-    def instances(cls: Type[_T]) -> Iterable[_T]:
-        for ref in tuple(cls._instance_refs[cls]):
-            if instance := ref():
-                yield instance
-            else:
-                cls._instance_refs.remove(ref)
+    @classproperty
+    def instances(cls: Type["Widget"]) -> Iterable["Widget"]:
+        """Return a generator of active instances for this Widget."""
+        refs = cls._instance_refs[cls]
+        valid = list(map(weakref.ref.__call__, refs))
+        # Remove dead references.
+        consume(map(refs.remove, compress(refs, map_not(valid))))
+        yield from filtertrue(valid)
 
     def __init__(self, parent: Optional["Widget"] = None) -> None:
         _check_type(parent, Widget, type(None))
