@@ -107,7 +107,7 @@ class EditorScrollbar(Scrollbar):
 
     def on_leave(self):
         self.thumb.set_highlight(False)
-        utils.safe_redraw_from_space_data(self.parent.space_data)
+        utils.safe_redraw_from_space(self.parent.space_data)
 
     def __init__(self, parent):
         super().__init__(parent)

@@ -20,8 +20,8 @@ from bpy.utils import register_class, unregister_class
 from typing import Callable
 from types import CellType, FunctionType
 
-from operator import methodcaller, attrgetter
-from itertools import compress, starmap
+from operator import attrgetter
+from itertools import compress, starmap, repeat
 from functools import partial
 
 from sys import _getframe
@@ -48,6 +48,9 @@ PyInstanceMethod_New.restype = ctypes.py_object
 PyFunction_SetClosure = ctypes.pythonapi.PyFunction_SetClosure
 PyFunction_SetClosure.argtypes = ctypes.py_object, ctypes.py_object
 PyFunction_SetClosure.restype = ctypes.c_int
+
+get_regions = attrgetter("regions")
+get_id = attrgetter("id")
 
 
 # This just converts the return values into functions for static analysis.
@@ -98,6 +101,21 @@ def map_ne(a, b):
 @inline
 def map_len(seq):
     return partial_map(len)
+
+
+@inline
+def map_areas_from_windows(windows):
+    return partial(map, attrgetter("screen.areas"))
+
+
+@inline
+def get_type(obj_with_type_attr):
+    return attrgetter("type")
+
+
+@inline
+def map_repeat(seq):
+    return partial(map, repeat)
 
 
 def lazy_overwrite(func) -> property:
@@ -250,12 +268,17 @@ def safe_redraw():
     except AttributeError:
         pass
 
+@inline
+def map_spaces_from_areas(areas):
+    return partial(map, operator.attrgetter("spaces.active"))
 
-# Try to redraw a region from a space data regardless if it's dangling.
-def safe_redraw_from_space_data(st: bpy.types.Space, space_type: str = "TEXT_EDITOR"):
-    for space in iter_spaces(space_type):
-        if space == st:
-            return region_from_space_data(space).tag_redraw()
+
+def safe_redraw_from_space(space):
+    areas = map_areas_from_windows(_context.window_manager.windows)
+    dup_areas = starchain(map_repeat(starchain(areas), repeat(2)))
+    spaces = map_spaces_from_areas(dup_areas)
+    if next(filter(space.__eq__, spaces), False):
+        return next(dup_areas).tag_redraw()
 
 
 # This just ensures tracebacks in the decoratee propagate to stderr.
@@ -586,7 +609,7 @@ def get_scrollbar_x_offsets(region_width):
 
 
 def iter_areas(area_type='TEXT_EDITOR'):
-    for area in starchain(map(get_screen_areas, _context.window_manager.windows)):
+    for area in starchain(map_areas_from_windows(_context.window_manager.windows)):
         if area.type == area_type:
             yield area
 
@@ -598,11 +621,12 @@ def iter_regions(area_type='TEXT_EDITOR', region_type='WINDOW'):
 
 
 def iter_spaces(space_type='TEXT_EDITOR'):
-    yield from map(get_spaces_active, iter_areas(space_type))
+    yield from map_spaces_from_areas(iter_areas(space_type))
 
 
 def redraw_editors(area='TEXT_EDITOR', region_type='WINDOW'):
-    consume(map(tag_redraw, iter_regions(area, region_type)))
+    for region in iter_regions(area, region_type):
+        region.tag_redraw()
 
 
 def this_module() -> types.ModuleType:
@@ -610,12 +634,6 @@ def this_module() -> types.ModuleType:
     import sys
     return sys.modules.get(sys._getframe(1).f_globals["__name__"])
 
-
-get_id = attrgetter("id")
-get_spaces_active = attrgetter("spaces.active")
-get_screen_areas = attrgetter("screen.areas")
-get_regions = attrgetter("regions")
-tag_redraw = methodcaller("tag_redraw")
 
 
 def text_from_id(text_id: int):
@@ -651,6 +669,7 @@ def namespace(*names: tuple[str], **defaults):
     return namespace
 
 
+# Warning: Only use if the space is guaranteed to be alive.
 def region_from_space_data(st, region_type='WINDOW') -> bpy.types.Region:
     for area in st.id_data.areas:
         if area.spaces[0] == st:
