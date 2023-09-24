@@ -674,12 +674,20 @@ def redraw_text():
 
 
 def make_space_data_instancer(cls, space_type=bpy.types.SpaceTextEditor):
+
     def get_instance(*, cache={}) -> cls:
         try:
             return cache[_context.space_data]
+
         except KeyError:
-            _check_type(st := _context.space_data, space_type)
-            return cache.setdefault(st, cls(st))
+            space = _context.space_data
+
+            # Remove invalid space data from cache on file loads.
+            dead = cache.keys() - set(iter_spaces(space_type=space.type))
+            consume(map(cache.__delitem__, dead))
+
+            return cache.setdefault(space, cls(space))
+
     get_instance.__annotations__["return"] = cls
     return get_instance
 
