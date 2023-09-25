@@ -229,6 +229,7 @@ class Widget:
     height       = _forwarder("rect.height",       rtype=float)
     height_inner = _forwarder("rect.height_inner", rtype=float)
 
+    position       = _forwarder("rect.position", rtype=tuple[float, float])
     position_inner = _forwarder("rect.position_inner", rtype=tuple[float, float])
     size_inner     = _forwarder("rect.size_inner", rtype=tuple[float, float])
 
@@ -1325,11 +1326,10 @@ class TextView(TextDraw):
         self.set_margins(left=8, top=8, right=8, bottom=8)
 
     def draw(self):
-        parent_rect = self.parent.rect
-        x, y = parent_rect.position + parent_rect.size
+        x, y = self.position
         w, h = self.rect.size
 
-        self.rect.draw(x, y - h, w, h)  # Draw the background.
+        self.rect.draw(x, y, w, h)  # Draw the background.
         self.draw_text()           # Draw the text.
         super().draw()             # Draw the surface.
 
