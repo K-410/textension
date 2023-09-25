@@ -1326,7 +1326,6 @@ class TextView(TextDraw):
     def __init__(self, parent: Widget):
         super().__init__(parent=parent)
         self.rect.size = (250, 100)
-        self.set_margins(left=8, top=8, right=8, bottom=8)
 
     def draw(self):
         x, y = self.position
