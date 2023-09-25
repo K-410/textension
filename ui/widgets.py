@@ -539,6 +539,7 @@ class TextDraw(Widget):
     scrollbar_thumb_border_color     = 0.32, 0.32, 0.32, 1.0
     scrollbar_thumb_border_width     = 1
 
+    show_scrollbar: bool             = True
     show_horizontal_scrollbar: bool  = True
 
     @inline
@@ -683,8 +684,10 @@ class TextDraw(Widget):
         self.surface.x = int(self.rect.inner_x)
         self.surface.y = int(self.rect.inner_y)
         self.surface.draw()
-        self.scrollbar.draw()
-        self.scrollbar_h.draw()
+        if self.show_scrollbar:
+            self.scrollbar.draw()
+        if self.show_horizontal_scrollbar:
+            self.scrollbar_h.draw()
         self.resizer.draw()
 
     @property
