@@ -1261,20 +1261,20 @@ class ListBox(TextDraw):
         return result
 
 
-class _Margins(tuple):
+class Margins(tuple):
     left   = _named_index(0)
     top    = _named_index(1)
     right  = _named_index(2)
     bottom = _named_index(3)
 
     @soft_property
-    def vertical(self, margin: "_Margins", unused=None):
+    def vertical(self, margin: "Margins", unused=None):
         """The total vertical margin (top + bottom)."""
         margin.vertical = margin.top + margin.bottom
         return margin.vertical
 
     @soft_property
-    def horizontal(self, margin: "_Margins", unused=None):
+    def horizontal(self, margin: "Margins", unused=None):
         """The total horizontal margin (left + right)."""
         margin.horizontal = margin[0] + margin[2]
         return margin.horizontal
@@ -1288,7 +1288,7 @@ class TextView(TextDraw):
 
     lines: list[TextLine]
 
-    margins: _Margins = _Margins((0, 0, 0, 0))  # Left, right, top, bottom.
+    margins: Margins = Margins((8, 8, 8, 8))  # Left, right, top, bottom.
 
     # Copy of the string as it was passed to TextView.set_from_string.
     cached_string: str = ""
@@ -1310,7 +1310,7 @@ class TextView(TextDraw):
         edges = ("left", "top", "right", "bottom")
         new_margins = dict(zip(edges, self.margins)) | kw
         try:
-            self.margins = _Margins(map(int, itemgetter(*edges)(new_margins)))
+            self.margins = Margins(map(int, itemgetter(*edges)(new_margins)))
         except:
             raise TypeError("Keyword arguments not convertible to int")
 
