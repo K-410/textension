@@ -52,60 +52,84 @@ __all__ = [
 
 _T = TypeVar("_T")
 
+
+@inline
 def wrap_string(string:    str,
                 max_width: int,
                 font_size: int,
                 font_id:   int) -> list[str]:
 
-    from collections import deque
-    string = string.expandtabs(4)
-    lines = deque(string.split("\n"))
+    from itertools import repeat
+    from functools import partial
+    from builtins import zip, map, enumerate
+    from ..utils import instanced_default_cache
 
-    wrapped = []
+    @inline
+    def join_space(strings):
+        return " ".join
 
-    def _break_word(word) -> tuple[str, str]:
-        for i in range(len(word)):
-            substring = word[:i + 1]
-            substring_width = blf.dimensions(font_id, substring + " ")[0]
-            if substring_width > max_width:
-                return word[:i], word[i:]
-        return word[:-1], word[-1]
+    @instanced_default_cache
+    def dimensions_func_cache(self: dict, font_id):
+        return self.setdefault(font_id, partial(map, blf.dimensions, repeat(font_id)))
 
-    blf.size(font_id, font_size, int(_system.dpi * _system.pixel_size))
-    while lines:
-        line = lines.popleft()
-        width = blf.dimensions(font_id, line)[0]
+    split = str.split
+    expandtabs = str.expandtabs
 
-        if width > max_width:
-            span = 0
-            words = deque(line.split(" "))
+    def wrap_string(string, max_width, font_size, font_id):
+        wrapped = []
 
-            tmp = []
+        if "\t" in string:
+            string = expandtabs(string, 4)
 
-            while words:
-                word = words.popleft()
-                word_length = blf.dimensions(font_id, word + " ")[0]
-                curr_width = word_length + span
+        lines = split(string, "\n")
+        blf.size(font_id, font_size, int(_system.dpi * _system.pixel_size))
+        map_dimensions = dimensions_func_cache[font_id]
+        (space, _), = map_dimensions(" ")
 
-                if curr_width < max_width:
-                    tmp += word,
-                    span += word_length
+        for line, (width, _) in zip(lines, map_dimensions(lines)):
+            if width > max_width:
+                tmp = []
+                words = split(line, " ")
+                remaining = max_width
 
-                elif tmp:
-                    words.appendleft(word)
-                    wrapped.append(" ".join(tmp))
-                    del tmp[:]
-                    span = 0
+                for word, (width, _) in zip(words, map_dimensions(words)):
+                    if width <= remaining:
+                        remaining -= width + space  # Word + " ".
+                        tmp += word,
 
-                else:
-                    word, tail = _break_word(word)
-                    words.appendleft(tail)
-                    wrapped.append(word)
-            if tmp:
-                line = " ".join(tmp)
+                    else:
+                        if tmp:
+                            wrapped += join_space(tmp),
 
-        wrapped.append(line)
-    return wrapped
+                        if width <= max_width:
+                            remaining = max_width - width - space
+                            tmp = [word]
+
+                        else:
+                            start = 0
+                            remaining = max_width
+                            for i, (width, _) in enumerate(map_dimensions(word)):
+                                if width <= remaining:
+                                    remaining -= width
+                                else:
+                                    remaining = max_width - width
+                                    wrapped += word[start:i],
+                                    start = i
+
+                            if start != i:  # type: ignore
+                                remaining -= width + space
+                                tmp = [word[start:]]
+                            else:
+                                remaining = max_width
+                                tmp = []
+
+                if tmp:
+                    wrapped += join_space(tmp),
+                continue
+
+            wrapped += line,
+        return wrapped
+    return wrap_string
 
 
 class Widget:
