@@ -1393,3 +1393,28 @@ class TextView(TextDraw):
             lines = self.cached_string.splitlines()
         self.lines[:] = map(TextLine, lines)
         self._clamp_view()
+
+
+class Popup(TextView):
+    hit_test = None.__init__
+    font_size = 12
+
+    shadow           = 0.0,  0.0,  0.0,  0.3
+    foreground_color = 0.8,  0.8, 0.8,  1.0
+    background_color = 0.15, 0.15, 0.15, 1.0
+    show_scrollbar = False
+    show_horizontal_scrollbar = False
+
+    def __init__(self, parent: Widget = None):
+        super().__init__(parent)
+        self.update_uniforms(rect=(100, 100, 200, 100), corner_radius=3)
+        self.set_from_string("This is a popup")
+        self.set_margins(left=8, top=6, right=10, bottom=8)
+        self.fit()
+
+    def fit(self):
+        blf.size(self.font_id, self.font_size, int(_system.dpi * _system.pixel_size))
+        width, height = blf.dimensions(self.font_id, self.cached_string)
+        width += self.margins.horizontal
+        height += self.margins.vertical
+        self.rect.size = map(round, (width, height))
