@@ -662,6 +662,10 @@ def _reset_namespace(self):
     consume(map(self.__delattr__, self.__slots__))
 
 
+def _as_dict(self):
+    return dict(zip(self.__slots__, map(self.__getattribute__, self.__slots__)))
+
+
 def namespace(*names: tuple[str], **defaults):
     assert all(map(str.__instancecheck__, names))
 
@@ -669,6 +673,7 @@ def namespace(*names: tuple[str], **defaults):
         __slots__ = names or tuple(defaults)
         update: Callable = _update_namespace
         reset: Callable  = _reset_namespace
+        as_dict: Callable = _as_dict
 
     namespace = FixedNamespace()
     namespace.update(**defaults)
