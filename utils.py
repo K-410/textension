@@ -273,6 +273,12 @@ def map_spaces_from_areas(areas):
     return partial(map, operator.attrgetter("spaces.active"))
 
 
+def validate_space(space):
+    areas = map_areas_from_windows(_context.window_manager.windows)
+    spaces = map_spaces_from_areas(starchain(areas))
+    return next(filter(space.__eq__, spaces), None)
+
+
 def safe_redraw_from_space(space):
     areas = map_areas_from_windows(_context.window_manager.windows)
     dup_areas = starchain(map_repeat(starchain(areas), repeat(2)))
