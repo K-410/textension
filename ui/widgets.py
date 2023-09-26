@@ -1405,6 +1405,7 @@ class Popup(TextView):
     background_color = 0.15, 0.15, 0.15, 1.0
     show_scrollbar = False
     show_horizontal_scrollbar = False
+    use_word_wrap = False
 
     def __init__(self, parent: Widget = None):
         super().__init__(parent)
