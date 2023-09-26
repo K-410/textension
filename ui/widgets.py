@@ -82,7 +82,7 @@ def wrap_string(string:    str,
             string = expandtabs(string, 4)
 
         lines = split(string, "\n")
-        blf.size(font_id, font_size, int(_system.dpi * _system.pixel_size))
+        blf.size(font_id, font_size)
         map_dimensions = dimensions_func_cache[font_id]
         (space, _), = map_dimensions(" ")
 
@@ -106,6 +106,7 @@ def wrap_string(string:    str,
                             tmp = [word]
 
                         else:
+                            i = 0
                             start = 0
                             remaining = max_width
                             for i, (width, _) in enumerate(map_dimensions(word)):
