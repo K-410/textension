@@ -2,7 +2,7 @@
 
 from textension.utils import TextOperator, _system, safe_redraw, km_def, defer, is_spacetext, inline, set_name
 from textension.core import find_word_boundary
-from .utils import runtime, _editors, _hit_test, get_mouse_region, set_hit, clear_widget_focus, _visible, HitTestHandler
+from .utils import runtime, _editors, _hit_test, get_mouse_region, set_hit, clear_widget_focus, _visible, HitTestHandler, _region_change_handlers, PASS_THROUGH
 from .widgets import Scrollbar, Widget, Thumb, EdgeResizer, BoxResizer, TextDraw, Input, TextView
 
 import time
@@ -269,6 +269,13 @@ class TEXTENSION_OT_ui_leave_handler(TextOperator):
             if key != runtime.cursor_key:
                 runtime.cursor_key = key
                 set_hit(None)
+                for handler in _region_change_handlers:
+                    try:
+                        handler()
+                    except Exception:
+                        import traceback
+                        traceback.print_exc()
+                        continue
             return False
 
         return poll

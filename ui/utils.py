@@ -24,6 +24,7 @@ __all__ = [
     "remove_draw_hook"
 ]
 
+_region_change_handlers = []
 
 _editors = defaultdict(repeat(defaultdict(tuple)).__next__)
 _capsules = []
