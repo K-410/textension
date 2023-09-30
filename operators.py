@@ -5,8 +5,7 @@ from .core import iter_brackets, find_word_boundary
 from .ui import get_mouse_region
 from time import perf_counter
 from .btypes.defs import ST_SCROLL_SELECT
-from . import utils
-from . import prefs
+from . import ui, utils, prefs
 
 import bpy
 
@@ -246,7 +245,7 @@ class ScrollAccumulator:
 
             if not cls.pool:
                 cls.timer = _context.window_manager.event_timer_add(1e-3, window=_context.window)
-                utils.add_draw_hook(ScrollAccumulator.on_redraw)
+                ui.add_draw_hook(ScrollAccumulator.on_redraw)
 
             instance.st_dna = st.internal
             instance.st_rt = st.runtime
@@ -308,7 +307,7 @@ class ScrollAccumulator:
         if not self.buffer:
             del self.pool[next(k for k, v in self.pool.items() if v is self)]
         if not self.pool:
-            utils.remove_draw_hook(ScrollAccumulator.on_redraw)
+            ui.remove_draw_hook(ScrollAccumulator.on_redraw)
             _context.window_manager.event_timer_remove(self.timer)
             self.region_internal.do_draw = 1
 

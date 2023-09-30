@@ -5,7 +5,7 @@ import gpu
 from textension.utils import _context, _system, map_contains, namespace
 from gpu.types import GPUVertBuf, GPUBatch, GPUVertFormat
 from itertools import repeat, islice, compress, count
-from textension import utils
+from textension import ui, utils
 from functools import partial
 from operator import mul, floordiv, sub, add
 from sys import maxsize as int_max
@@ -419,7 +419,7 @@ def enable():
 
     add_runtime()
     # The new editor scrollbar uses draw index 10. This draws on top.
-    utils.add_draw_hook(draw_match, draw_index=11)
+    ui.add_draw_hook(draw_match, draw_index=11)
 
 
 def disable():
@@ -430,5 +430,5 @@ def disable():
     
     global prefs
     prefs = None
-    utils.remove_draw_hook(draw_match)
+    ui.remove_draw_hook(draw_match)
     runtime.reset()

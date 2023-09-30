@@ -1,5 +1,6 @@
 """This module implements a search widget for the text editor."""
 
+from textension import ui
 from textension.ui.widgets import Input, Widget
 from textension.ui.utils import set_widget_focus, _visible
 from textension.utils import _context, TextOperator
@@ -93,17 +94,17 @@ classes = (
 
 def _enable():
     utils.register_classes(classes)
-    utils.add_draw_hook(draw_search, draw_index=11)
+    ui.add_draw_hook(draw_search, draw_index=11)
 
     from textension.ui.utils import add_hit_test
-    add_hit_test(test_search)
+    add_hit_test(test_search, 'TEXT_EDITOR', 'WINDOW')
 
 
 def _disable():
     utils.unregister_classes(classes)
 
     get_search.__kwdefaults__["cache"].clear()
-    utils.remove_draw_hook(draw_search)
+    ui.remove_draw_hook(draw_search)
 
     # Hit testing
     from textension.ui.utils import remove_hit_test

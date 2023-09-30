@@ -1,7 +1,7 @@
 import bpy
 import blf
 
-from textension import utils
+from textension import utils, ui
 from textension.ui import gl
 from textension.utils import _system, _context
 from bpy.types import SpaceTextEditor
@@ -262,12 +262,12 @@ def _enable():
     utils.watch_rna((bpy.types.PreferencesView, "ui_scale"), Tabs.invalidate)
 
     bpy.types.Text.tab_index = bpy.props.IntProperty(default=-1)
-    utils.add_draw_hook(draw_tabs, region_type='HEADER')
+    ui.add_draw_hook(draw_tabs, region_type='HEADER')
     set_new_header_layout(True)
 
 
 def _disable():
-    utils.remove_draw_hook(draw_tabs, region='HEADER')
+    ui.remove_draw_hook(draw_tabs, region='HEADER')
     utils.unwatch_rna(get_instance.clear)
     utils.unwatch_rna(Tabs.invalidate)
     set_new_header_layout(False)
