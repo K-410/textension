@@ -610,9 +610,9 @@ def region_from_space_data(st, region_type='WINDOW') -> bpy.types.Region:
 
 @inline
 def redraw_text():
-    from .btypes import ARegion, bContext, byref, get_area_region_type
+    from .btypes import ARegion, bContext, byref, get_ARegionType
 
-    art = get_area_region_type('TEXT_EDITOR', 'WINDOW')
+    art = get_ARegionType('TEXT_EDITOR', 'WINDOW')
     draw = art.draw
     ctx_ref = byref(bContext(_context))
 
