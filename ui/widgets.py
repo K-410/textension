@@ -122,7 +122,7 @@ def wrap_string(string:    str,
                                 tmp = [word[start:]]
                             else:
                                 remaining = max_width
-                                tmp = []
+                                tmp = [word[i:]]
 
                 if tmp:
                     wrapped += join_space(tmp),
