@@ -1402,21 +1402,37 @@ class Popup(TextView):
 
     shadow           = 0.0,  0.0,  0.0,  0.3
     foreground_color = 0.8,  0.8, 0.8,  1.0
-    background_color = 0.15, 0.15, 0.15, 1.0
+    background_color = 0.16, 0.16, 0.16, 1.0
+    border_color     = 0.4, 0.4, 0.4, 1.0
+    border_width     = 1
+
     show_scrollbar = False
     show_horizontal_scrollbar = False
     use_word_wrap = False
 
     def __init__(self, parent: Widget = None):
         super().__init__(parent)
-        self.update_uniforms(rect=(100, 100, 200, 100), corner_radius=3)
+        self.update_uniforms(rect=(100, 100, 200, 100), corner_radius=2)
         self.set_from_string("This is a popup")
-        self.set_margins(left=8, top=6, right=10, bottom=8)
         self.fit()
 
     def fit(self):
-        blf.size(self.font_id, self.font_size, int(_system.dpi * _system.pixel_size))
+        # Margins are based on being 6px at font size 16 and ui scale 1.0.
+        margin = int(6 * (self.font_size / 16) * runtime.wu_norm)
+        self.margins = Margins((margin,) * 4)
+
+        blf.size(self.font_id, self.font_size, _system.dpi)
         width, height = blf.dimensions(self.font_id, self.cached_string)
         width += self.margins.horizontal
         height += self.margins.vertical
         self.rect.size = map(round, (width, height))
+
+    def get_text_y(self):
+        y = (self.rect.height - (self.rect.border_width * 2))
+        base = blf.dimensions(self.font_id, "x")[1]
+        return int((y - base) * 0.5)
+
+    def get_text_x(self):
+        blf.size(self.font_id, self.font_size, _system.dpi)
+        width = blf.dimensions(self.font_id, self.cached_string)[0]
+        return (self.rect.width - width) // 2
