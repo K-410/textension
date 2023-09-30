@@ -29,7 +29,13 @@ _editors = defaultdict(repeat(defaultdict(tuple)).__next__)
 _capsules = []
 # _leave_handlers = {}
 
-runtime = namespace(hit=None, main_draw=None, cursor_key=(None, None))
+runtime = namespace(
+    hit=None,
+    main_draw=None,
+    cursor_key=(None, None),
+    wu=20,
+    wu_norm=1.0,
+)
 
 # TODO: Rename this to something more descriptive.
 _visible = []
