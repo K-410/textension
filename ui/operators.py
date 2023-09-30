@@ -34,8 +34,8 @@ class TEXTENSION_OT_ui_mouse(TextOperator):
     def invoke(self, context, event):
         # A widget is being hovered. Activate it and eat the event.
         if runtime.hit and context.area and context.area.type in _editors:
-            runtime.hit.on_activate()
-            return {'CANCELLED'}
+            if runtime.hit.on_activate() is not PASS_THROUGH:
+                return {'CANCELLED'}
 
         x, y = get_mouse_region()
         # A widget was hit tested isn't set as a hit. This happens when an

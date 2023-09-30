@@ -44,6 +44,7 @@ _visible = []
 _focus_stack = defaultdict_list()
 _draw_hook_index_map = {}
 
+PASS_THROUGH = object()
 
 # Not sure how to get this via RNA.
 space_map = {
