@@ -3,13 +3,13 @@
 from textension.utils import _check_type, _forwarder, _system, _context, \
     safe_redraw, close_cells, inline, set_name, UndoStack, Adapter, \
     soft_property, _named_index, defaultdict_list, Variadic, _variadic_index, \
-    filtertrue, consume, map_not, classproperty
-from textension.ui.utils import set_widget_focus, get_widget_focus
+    filtertrue, consume, map_not, classproperty, lazy_overwrite
+from textension.ui.utils import set_widget_focus, get_widget_focus, runtime
 from textension.ui.gl import Rect, Texture
 from textension.core import find_word_boundary
 
 from functools import partial
-from itertools import islice, compress
+from itertools import islice, compress, repeat
 from operator import methodcaller, itemgetter
 from typing import Optional, Union, TypeVar, Iterable, Type
 import weakref
@@ -51,6 +51,10 @@ __all__ = [
 ]
 
 _T = TypeVar("_T")
+
+
+def noop(method):
+    return None.__init__
 
 
 @inline
@@ -563,16 +567,22 @@ class TextDraw(Widget):
         self.scrollbar   = Scrollbar(parent=self, axis="VERTICAL")
         self.scrollbar_h = Scrollbar(parent=self, axis="HORIZONTAL")
 
+        self.line_height = 1
+        self.height_inner = 1
+        self.width_inner = 1
+        self.line_offset_px = 0
+        self.map_delattrs = partial(map, self.__delattr__, ("line_height", "height_inner", "width_inner", "line_offset_px"))
+
     def set_corner_radius(self, new_radius):
         for widget in (self, self.scrollbar, self.scrollbar.thumb):
             widget.update_uniforms(corner_radius=new_radius)
 
-    @property
+    @lazy_overwrite
     def width_inner(self) -> int:
         """The width excluding border."""
         return round(self.rect.width_inner)
 
-    @property
+    @lazy_overwrite
     def height_inner(self) -> int:
         """The height excluding border."""
         return round(self.rect.height_inner)
@@ -607,12 +617,12 @@ class TextDraw(Widget):
                 return max_left
         return 0
 
-    @property
+    @lazy_overwrite
     def line_offset_px(self) -> int:
         """The pixel offset into the current line from top."""
         return round(self.top % 1.0 * self.line_height)
 
-    @property
+    @lazy_overwrite
     def line_height(self) -> int:
         """The line height in pixels."""
         font_id = self.font_id
@@ -680,40 +690,78 @@ class TextDraw(Widget):
             value = 0
         self.set_view(value, axis)
 
+    @noop
+    def draw_contents(self):
+        """Called by TextDraw when the surface contents must be redrawn."""
+
+    @noop
+    def draw_overlays(self):
+        """Called by TextDraw when overlays must be drawn."""
+
+    @noop
+    def on_cache_key_changed(self):
+        """Called by TextDraw when the cache key changed.
+        The cache key is an object that must be equal to a previous key.
+        If the key is different, the surface (cache) is redrawn.
+        """
+
+    @set_name("TextDraw.draw")
     def draw(self) -> None:
-        # TODO: self.position/self.surface size isn't the right way.
-        self.surface.x = int(self.rect.inner_x)
-        self.surface.y = int(self.rect.inner_y)
+        # Regenerate line height
+        regen_attrs = self.map_delattrs()
+        while True:
+            try:
+                consume(regen_attrs)
+                break
+            except:
+                pass
+        rect = self.rect
+        width, height = rect.size
+
+        # Draw the Widget background.
+        rect.draw(*self.position, width, height)
+
+        border = rect.border_width * 2.0
+        surface_size = width - border, height - border
+        if surface_size != self.surface.size:
+            self.surface.__init__(surface_size)
+
+        cache_key = self.get_cache_key()
+        if cache_key != self.cache_key:
+            self.cache_key = cache_key
+            self.on_cache_key_changed()
+
+            with self.surface.bind():
+                self.draw_contents()
+
+        self.draw_overlays()
+
+        self.surface.x = int(rect.x + rect.border_width)
+        self.surface.y = int(rect.y + rect.border_width)
         self.surface.draw()
+
         if self.show_scrollbar:
             self.scrollbar.draw()
+
         if self.show_horizontal_scrollbar:
             self.scrollbar_h.draw()
+
         self.resizer.draw()
 
-    @property
-    def size(self) -> tuple[float, float]:
-        return self.rect[2], self.rect[3]
+    size = _forwarder("rect.size")
 
     def get_drawable_lines(self):
         start = int(self.top)
         end = int(start + (self.rect[3] // self.line_height) + 2)
         return islice(self.lines, start, end)
 
-    def get_surface(self) -> Texture:
-        # There's no scissor/clip as of 3.2, so we draw to an off-screen
-        # surface instead. The surface is cached for performance reasons.
-        if self.rect.size_inner != self.surface.size:
-            self.surface.__init__(self.rect.size_inner)
-        return self.surface
-
     def get_text_y(self) -> int:
         line_height = self.line_height
-        blf.size(self.font_id, self.font_size, int(_system.dpi * _system.pixel_size))
-        # Pad the glyph baseline so the text is centered on the line.
+        blf.size(self.font_id, self.font_size)
+        # The glyph rests on the baseline. Add the (average) descender.
         y_pad = (line_height - blf.dimensions(self.font_id, "x")[1]) // 2
 
-        return int(self.rect.height_inner - line_height + self.line_offset_px + y_pad)
+        return int(self.height_inner - line_height + self.line_offset_px + y_pad)
 
     def _clamp_view(self):
         # Clamp left
@@ -729,6 +777,7 @@ class TextDraw(Widget):
                 self.top = max(0, self.top - shift)
 
     def resize(self, size: tuple[int, int]):
+        self.cache_key = object()
         self.rect.size = size
         self._clamp_view()
 
@@ -1187,28 +1236,22 @@ class ListBox(TextDraw):
     def on_activate(self) -> None:
         print("ListBox clicked")
 
-    def draw(self) -> None:
-        if self._validate_view():
+    def get_cache_key(self):
+        if id(self.lines) != self.view_key:
+            self.view_key = id(self.lines)
+            self.top = 0.0
             self.active.set_index(0, redraw_on_modify=False)
-
-        surface = self.get_surface()
-
         text_x = self.start_x
         line_height = self.line_height
-        cache_key = (self.line_offset_px, self.view_key, line_height, surface.size, text_x)
+        return (self.line_offset_px, self.view_key, line_height, self.rect.size, text_x)
 
-        # The surface must be redrawn.
-        if cache_key != self.cache_key:
-            self.cache_key = cache_key
-
-            text_y = self.get_text_y()
-            with self.surface.bind():
-                for entry in self.get_drawable_lines():
-                    self.draw_entry(entry, text_x, text_y)
-                    text_y -= line_height
-
-        self.draw_overlays()
-        super().draw()  # TextDraw.draw()
+    def draw_contents(self):
+        line_height = self.line_height
+        text_x = self.start_x
+        text_y = self.get_text_y()
+        for entry in self.get_drawable_lines():
+            self.draw_entry(entry, text_x, text_y)
+            text_y -= line_height
 
     def draw_overlays(self):
         """Draw hover and selection rectangle overlays."""
@@ -1239,16 +1282,6 @@ class ListBox(TextDraw):
         blf.position(self.font_id, x, y, 0)
         blf.color(self.font_id, *self.foreground_color)
         blf.draw(self.font_id, string)
-
-    def _validate_view(self) -> bool:
-        # If ``self.lines`` changes, reset top, hover and selection.
-        # TODO: This isn't a good check.
-        # TODO: ``lines`` should be mutable while still allowing view invalidation.
-        if id(self.lines) != self.view_key:
-            self.view_key = id(self.lines)
-            self.top = 0.0
-            return True
-        return False
 
     @set_name("hit_test (ListBox)")
     def hit_test(self, x, y):
@@ -1302,14 +1335,15 @@ class TextView(TextDraw):
 
     use_word_wrap: bool = True
 
+    def get_cache_key(self):
+        return (self.cached_string, self.font_size, _system.ui_scale)
+
     def add_font_delta(self, delta: int):
         self.font_size += delta
 
     def set_margins(self, **kw) -> None:
         """Set the margins of the TextView object.
-
         Possible keywords: left, top, right and bottom.
-
         Example: set_margins(left=10)
         """
         edges = ("left", "top", "right", "bottom")
@@ -1321,20 +1355,12 @@ class TextView(TextDraw):
 
     def set_from_string(self, string: str):
         self.cached_string = string
-        self._update_lines()
+        self.cache_key = ()
         self.reset_view()
 
     def __init__(self, parent: Widget):
         super().__init__(parent=parent)
         self.rect.size = (250, 100)
-
-    def draw(self):
-        x, y = self.position
-        w, h = self.rect.size
-
-        self.rect.draw(x, y, w, h)  # Draw the background.
-        self.draw_text()           # Draw the text.
-        super().draw()             # Draw the surface.
 
     def get_text_y(self):
         y = super().get_text_y() - self.margins[1]
@@ -1368,18 +1394,18 @@ class TextView(TextDraw):
         end   = int(start + (self.rect[3] // self.line_height) + 2)
         return islice(self.lines, start, end)
 
-    def draw_text(self):
-        surface = self.get_surface()
+    def on_cache_key_changed(self):
+        self._update_lines()
 
+    def draw_contents(self):
         line_height = self.line_height
         text_y = self.get_text_y()
         text_x = self.get_text_x()
-        with surface.bind():
-            blf.color(self.font_id, *self.foreground_color)
-            for line in self.get_drawable_lines():
-                blf.position(self.font_id, text_x, text_y, 0)
-                blf.draw(self.font_id, line.string)
-                text_y -= line_height
+        blf.color(self.font_id, *self.foreground_color)
+        for line in self.get_drawable_lines():
+            blf.position(self.font_id, text_x, text_y, 0)
+            blf.draw(self.font_id, line.string)
+            text_y -= line_height
 
     def resize(self, size: tuple[int, int]):
         self.rect.size = size
@@ -1394,6 +1420,7 @@ class TextView(TextDraw):
             lines = self.cached_string.splitlines()
         self.lines[:] = map(TextLine, lines)
         self._clamp_view()
+        self.cache_key = object()
 
 
 class Popup(TextView):
