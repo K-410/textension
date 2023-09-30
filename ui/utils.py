@@ -66,6 +66,7 @@ space_map = {
     "TEXT_EDITOR":      bpy.types.SpaceTextEditor,
     "VIEW_3D":          bpy.types.SpaceView3D,
 }
+_space_types = set(bpy.types.Space.bl_rna.properties['type'].enum_items.keys()) - {'EMPTY'}
 
 
 def main_draw(context, region):
