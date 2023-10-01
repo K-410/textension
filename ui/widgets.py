@@ -1424,22 +1424,24 @@ class TextView(TextDraw):
 
 
 class Popup(TextView):
-    hit_test = None.__init__
-    font_size = 12
-
     shadow           = 0.0,  0.0,  0.0,  0.3
-    foreground_color = 0.8,  0.8, 0.8,  1.0
+    foreground_color = 0.8,  0.8,  0.8,  1.0
     background_color = 0.16, 0.16, 0.16, 1.0
-    border_color     = 0.4, 0.4, 0.4, 1.0
+    border_color     = 0.4,  0.4,  0.4,  1.0
     border_width     = 1
 
+    font_size      = 12
+    use_word_wrap  = False
     show_scrollbar = False
     show_horizontal_scrollbar = False
-    use_word_wrap = False
+
+    @noop
+    def hit_test(self, x: float, y: float) -> bool:
+        pass
 
     def __init__(self, parent: Widget = None):
         super().__init__(parent)
-        self.update_uniforms(rect=(100, 100, 200, 100), corner_radius=2)
+        self.update_uniforms(rect=(100, 100, 200, 100))
         self.set_from_string("This is a popup")
         self.fit()
 
