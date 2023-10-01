@@ -718,18 +718,25 @@ def move_toggle(select: bool):
     text.cursor_set(line, character=column, select=select)
 
 
+# Inlines ``restore_offset`` since this potentially is called often.
 @cm.decorate
 def restore_view():
-    dna = _context.space_data.internal
+    space = _context.space_data
+    offsets = space.offsets
+    dna = space.internal
+
     top = dna.top
-    with (ctx := restore_offset()):
-        yield ctx
+    y = offsets.y
+
+    yield y
+
+    offsets.y = y
     dna.top = top
 
 
 @cm.decorate
 def restore_offset():
-    offsets = _context.space_data.runtime.scroll_ofs_px
+    offsets = _context.space_data.offsets
     y = offsets.y
     yield y
     offsets.y = y
