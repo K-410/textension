@@ -605,8 +605,7 @@ class TextDraw(Widget):
     @property
     def max_left(self) -> int:
         if self.show_horizontal_scrollbar:
-            blf.size(self.font_id, self.font_size,
-                     int(_system.dpi * _system.pixel_size))
+            blf.size(self.font_id, self.font_size)
             if self.lines and isinstance(self.lines[0], TextLine):
                 from itertools import repeat
                 strings = [l.string for l in self.lines]
@@ -627,7 +626,7 @@ class TextDraw(Widget):
         """The line height in pixels."""
         font_id = self.font_id
         # At 1.77 scale, dpi is halved and pixel_size is doubled. Go figure.
-        blf.size(font_id, self.font_size, int(_system.dpi * _system.pixel_size))
+        blf.size(font_id, self.font_size)
         # The actual height. Ascender + descender + x-height.
         return int(blf.dimensions(font_id, "Ag")[1] * self.line_padding)
 
@@ -1450,7 +1449,7 @@ class Popup(TextView):
         margin = int(6 * (self.font_size / 16) * runtime.wu_norm)
         self.margins = Margins((margin,) * 4)
 
-        blf.size(self.font_id, self.font_size, _system.dpi)
+        blf.size(self.font_id, self.font_size)
         width, height = blf.dimensions(self.font_id, self.cached_string)
         width += self.margins.horizontal
         height += self.margins.vertical
@@ -1462,6 +1461,6 @@ class Popup(TextView):
         return int((y - base) * 0.5)
 
     def get_text_x(self):
-        blf.size(self.font_id, self.font_size, _system.dpi)
+        blf.size(self.font_id, self.font_size)
         width = blf.dimensions(self.font_id, self.cached_string)[0]
         return (self.rect.width - width) // 2
