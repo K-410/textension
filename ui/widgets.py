@@ -332,7 +332,7 @@ class Scrollbar(Widget):
         parent = self.parent
         offset, span_px = self._compute_offsets()
         x, y = parent.position_inner
-        width = parent.scrollbar_width * (_system.wu * 0.05)
+        width = parent.scrollbar_width * runtime.wu_norm
 
         if self.axis == "VERTICAL":
             # Width is defined on parent and multiplied by ui scale.
@@ -1228,7 +1228,7 @@ class ListBox(TextDraw):
 
     @property
     def start_x(self):
-        return self.text_padding * _system.wu * 0.05
+        return self.text_padding * runtime.wu_norm
 
     def on_leave(self) -> None:
         self.hover.set_index(-1)
@@ -1426,8 +1426,8 @@ class TextView(TextDraw):
 class Popup(TextView):
     shadow           = 0.0,  0.0,  0.0,  0.3
     foreground_color = 0.8,  0.8,  0.8,  1.0
-    background_color = 0.16, 0.16, 0.16, 1.0
-    border_color     = 0.4,  0.4,  0.4,  1.0
+    background_color = 0.2,  0.2,  0.2,  1.0
+    border_color     = 0.35, 0.35, 0.35, 1.0
     border_width     = 1
 
     font_size      = 12
