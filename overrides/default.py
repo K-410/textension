@@ -865,7 +865,7 @@ class TEXT_OT_selection_set(Default):
     def invoke(self):
         ColumnRetainer.clear()
         with (ctx := restore_view()):
-            self.event.mvaly -= ctx.result.result
+            self.event.mvaly -= ctx.result
             return self.default()
 
     # Same as invoke.
