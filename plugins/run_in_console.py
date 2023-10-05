@@ -98,7 +98,7 @@ class TEXTENSION_OT_run_in_console(utils.TextOperator):
             _add_scrollback(perf_fmt, 'INFO')
 
         # Scroll to bottom
-        with context.temp_override(area=area, region=area.regions[-1]):
+        with utils.context_override(area=area, region=area.regions[-1]):
             bpy.ops.console.history_cycle(reverse=True)
             bpy.ops.console.history_cycle(reverse=False)
         return {'FINISHED'}

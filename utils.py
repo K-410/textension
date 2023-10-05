@@ -79,6 +79,11 @@ def inline_class(*args, star=True):
 
 
 @inline
+def context_override(**kw):
+    return partial(_context.temp_override)
+
+
+@inline
 def partial_map(*args):
     return partial(partial, map)
 
