@@ -1458,9 +1458,9 @@ class Popup(TextView):
     def get_text_y(self):
         y = (self.rect.height - (self.rect.border_width * 2))
         base = blf.dimensions(self.font_id, "x")[1]
-        return int((y - base) * 0.5)
+        return int((y - base) * 0.5) - 1
 
     def get_text_x(self):
         blf.size(self.font_id, self.font_size)
         width = blf.dimensions(self.font_id, self.cached_string)[0]
-        return (self.rect.width - width) // 2
+        return ((self.rect.width - width) // 2) - 1
