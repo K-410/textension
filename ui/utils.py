@@ -257,28 +257,29 @@ def add_hit_test(hit_test_func: Callable, space_type: str, region_type: str):
 def remove_hit_test(hit_test_func: Callable):
     for capsule in _capsules:
         if capsule[1] is hit_test_func:
+            handler = capsule[0]
+            handler.remove(capsule[1])
+
+            if len(handler) == 0:  # No more hooks, remove handler.
+                space = handler.space
+                region = handler.region
+                art = get_ARegionType(space, region)
+
+                # Restore art.cursor.
+                art.cursor = handler.real
+
+                del handler.real
+                del handler.default
+
+                editor = _editors[space]
+                del editor[region]
+                if not editor:
+                    del _editors[space]
             break
+        
     else:
-        raise ValueError(f"Function not registered\n{_capsules}")
-
-    handler = capsule[0]
-    handler.remove(capsule[1])
-
-    if len(handler) == 0:  # No more hooks, remove handler.
-        space = handler.space
-        region = handler.region
-        art = get_ARegionType(space, region)
-
-        # Restore art.cursor.
-        art.cursor = handler.real
-
-        del handler.real
-        del handler.default
-
-        editor = _editors[space]
-        del editor[region]
-        if not editor:
-            del _editors[space]
+        import warnings
+        warnings.warn(f"Function {hit_test_func} not registered\n{_capsules}")
     return None
 
 
