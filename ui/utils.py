@@ -379,6 +379,7 @@ def remove_draw_hook(fn: Callable, region: str='WINDOW'):
         if found:
             break
     if not found:
-        raise RuntimeError(f"'{fn.__name__}' not a registered hook")
+        import warnings
+        warnings.warn(f"'{fn.__name__}' not a registered hook")
     _draw_hook_index_map.pop(id(fn), None)
     return found
