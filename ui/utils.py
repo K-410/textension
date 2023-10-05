@@ -132,6 +132,22 @@ def _hit_test(clear=False):
                 runtime.hit.on_leave()
 
 
+def hit_test_skip(x, y, skip_hook=None):
+    region = _context.region
+
+    try:
+        handler = _editors[_context.area.type][region.type]
+    except:  # AttributeError. Area or region is None. Nothing to hit test.
+        return None
+
+    for hook in handler:
+        if hook is skip_hook:
+            continue
+        elif ret := hook(x, y):
+            return ret
+    return None
+
+
 def set_widget_focus(widget):
     stack = _focus_stack[_context.space_data]
 
