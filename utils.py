@@ -78,6 +78,36 @@ def inline_class(*args, star=True):
     return wrapper
 
 
+# Suppress warnings until control is released. 100% of all warnings are due
+# to (faster) identity tests on literals which python, via interning, are
+# guaranteed to be singletons unless slicing is involved.
+# The double inline calls ``suppress`` immediately after definition.
+@inline
+def _suppress_warnings():
+    import warnings
+
+    catch = warnings.catch_warnings(record=True)
+
+    @inline
+    def exit():
+        return partial(catch.__exit__, None, None, None)
+
+    @inline
+    def enter():
+        return catch.__enter__
+
+    def unsuppress():
+        exit()
+        catch._entered = False
+
+    def suppress():
+        if not bpy.app.timers.is_registered(unsuppress):
+            bpy.app.timers.register(unsuppress)
+            enter()
+
+    return suppress
+
+
 @inline
 def context_override(**kw):
     return partial(_context.temp_override)
@@ -1044,3 +1074,8 @@ class cm(Variadic):
             iterator = func(*args)
             return cm(iterator, next(iterator))
         return decorator
+
+
+# Suppress when this module is imported, which should be when textension is
+# imported for the first time.
+_suppress_warnings()
