@@ -6,6 +6,7 @@ NOTE: Do not import stuff from this package at module level.
 import functools
 import operator
 import ctypes
+import idprop
 import types
 import bpy
 
@@ -51,6 +52,8 @@ PyFunction_SetClosure.restype = ctypes.c_int
 
 get_regions = attrgetter("regions")
 get_id = attrgetter("id")
+
+bpy_array_types = idprop.types.IDPropertyArray, bpy.types.bpy_prop_array
 
 
 # This just converts the return values into functions for static analysis.
