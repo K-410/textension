@@ -265,8 +265,8 @@ class Thumb(Widget):
 
     def set_highlight(self, state: bool) -> None:
         mul = 0.05 * float(state)
-        self.rect.border_color = [clamp(v + mul) for v in self.border_color]
-        self.rect.background_color = [clamp(v + mul) for v in self.background_color]
+        self.rect.border_color = tuple(clamp(v + mul) for v in self.border_color)
+        self.rect.background_color = tuple(clamp(v + mul) for v in self.background_color)
         safe_redraw()
 
     def on_enter(self) -> None:
