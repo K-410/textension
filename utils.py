@@ -108,6 +108,19 @@ def _suppress_warnings():
     return suppress
 
 
+# Compatibility wrapper for ``blf.size``. Blender went from requiring 3
+# arguments, to requiring 2 + 1 optional, to requiring 2 and no optional.
+# If above 3.3, ``blf_size`` is just a 
+@inline
+def blf_size(font_id, font_size) -> None:
+    from blf import size
+
+    if bpy.app.version > (3, 3):
+        return size
+
+    return lambda font_id, font_size: size(font_id, font_size, 72)
+
+
 @inline
 def context_override(**kw):
     return partial(_context.temp_override)

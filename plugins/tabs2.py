@@ -21,7 +21,7 @@ class Tabs:
         wu = _system.wu
         Tab.width = 100 * wu // 20
         Tab.padding = 10 * wu // 20
-        blf.size(0, self.font_size, int(_system.pixel_size * _system.dpi))
+        utils.blf_size(0, self.font_size)
         offset = self.x
         for tab in self.validate_tabs():
             offset += tab.draw(self, offset) - 1

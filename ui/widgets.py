@@ -3,7 +3,7 @@
 from textension.utils import _check_type, _forwarder, _system, _context, \
     safe_redraw, close_cells, inline, set_name, UndoStack, Adapter, \
     soft_property, _named_index, defaultdict_list, Variadic, _variadic_index, \
-    filtertrue, consume, map_not, classproperty, lazy_overwrite
+    filtertrue, consume, map_not, classproperty, lazy_overwrite, blf_size
 from textension.ui.utils import set_widget_focus, get_widget_focus, runtime
 from textension.ui.gl import Rect, Texture
 from textension.core import find_word_boundary
@@ -86,7 +86,7 @@ def wrap_string(string:    str,
             string = expandtabs(string, 4)
 
         lines = split(string, "\n")
-        blf.size(font_id, font_size)
+        blf_size(font_id, font_size)
         map_dimensions = dimensions_func_cache[font_id]
         (space, _), = map_dimensions(" ")
 
@@ -605,7 +605,7 @@ class TextDraw(Widget):
     @property
     def max_left(self) -> int:
         if self.show_horizontal_scrollbar:
-            blf.size(self.font_id, self.font_size)
+            blf_size(self.font_id, self.font_size)
             if self.lines and isinstance(self.lines[0], TextLine):
                 from itertools import repeat
                 strings = [l.string for l in self.lines]
@@ -626,7 +626,7 @@ class TextDraw(Widget):
         """The line height in pixels."""
         font_id = self.font_id
         # At 1.77 scale, dpi is halved and pixel_size is doubled. Go figure.
-        blf.size(font_id, self.font_size)
+        blf_size(font_id, self.font_size)
         # The actual height. Ascender + descender + x-height.
         return int(blf.dimensions(font_id, "Ag")[1] * self.line_padding)
 
@@ -756,7 +756,7 @@ class TextDraw(Widget):
 
     def get_text_y(self) -> int:
         line_height = self.line_height
-        blf.size(self.font_id, self.font_size)
+        blf_size(self.font_id, self.font_size)
         # The glyph rests on the baseline. Add the (average) descender.
         y_pad = (line_height - blf.dimensions(self.font_id, "x")[1]) // 2
 
@@ -898,7 +898,7 @@ class Input(TextDraw):
             self.set_cursor(0, len(string))
 
     def hit_test_column(self, x: int):
-        blf.size(self.font_id, self.font_size)
+        blf_size(self.font_id, self.font_size)
         string = self.string
 
         pos = len(string)
@@ -931,7 +931,7 @@ class Input(TextDraw):
                        w - (pad * 2) - left_pad,
                        h - (pad * 2))
 
-        blf.size(self.font_id, self.font_size)
+        blf_size(self.font_id, self.font_size)
 
         cx = x + self.focus_x
         cy = y + pad
@@ -971,7 +971,7 @@ class Input(TextDraw):
 
     def get_selection_offsets(self):
         start, end = self.range
-        blf.size(self.font_id, self.font_size)
+        blf_size(self.font_id, self.font_size)
         x = blf.dimensions(self.font_id, self.string[:start])[0]
         span = blf.dimensions(self.font_id, self.string[start:end])[0]
         return x, span
@@ -979,7 +979,7 @@ class Input(TextDraw):
     # The local x-coordinate of the cursor focus.
     @property
     def focus_x(self):
-        blf.size(self.font_id, self.font_size)
+        blf_size(self.font_id, self.font_size)
         return blf.dimensions(self.font_id, self.string[:self.focus])[0]
 
     # The sorted selection range.
@@ -1449,7 +1449,7 @@ class Popup(TextView):
         margin = int(6 * (self.font_size / 16) * runtime.wu_norm)
         self.margins = Margins((margin,) * 4)
 
-        blf.size(self.font_id, self.font_size)
+        blf_size(self.font_id, self.font_size)
         width, height = blf.dimensions(self.font_id, self.cached_string)
         width += self.margins.horizontal
         height += self.margins.vertical
@@ -1461,6 +1461,6 @@ class Popup(TextView):
         return int((y - base) * 0.5) - 1
 
     def get_text_x(self):
-        blf.size(self.font_id, self.font_size)
+        blf_size(self.font_id, self.font_size)
         width = blf.dimensions(self.font_id, self.cached_string)[0]
         return ((self.rect.width - width) // 2) - 1
